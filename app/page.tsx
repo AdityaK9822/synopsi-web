@@ -340,7 +340,7 @@ function HomeInner() {
      in-memory session only (refresh = clean slate), Google users get
      localStorage. Runs once the auth state has settled; the eventual
      check-in only reloads persisted history once. */
-  const { user, tier, isGuest, loading } = useAuth();
+  const { user, tier, isGuest, loading, refresh } = useAuth();
   /* Owner-scoped persistence: never let one account see another's chats. */
   useEffect(() => {
     if (loading) return;
@@ -911,6 +911,7 @@ function HomeInner() {
         n.delete(threadKey);
         return n;
       });
+      void refresh(); // keep meter fresh after every API request
     }
   }
 
