@@ -2,12 +2,17 @@
 
 /**
  * Client auth context: Google popup sign-in → session handshake with the
- * server → account overview (plan + usage this period).
+ * server → account overview (tier + usage this period).
+ *
+ * Guest tier: every visitor without a Google session is silently upgraded
+ * to an ANONYMOUS Firebase identity. That gives guests a server-side uid,
+ * so their (strict) 5-generation quota survives refreshes — clearing
+ * browser data is the only reset, which is the accepted trade-off.
  *
  * State derives from Firebase's own identity signal (onAuthStateChanged,
- * so the UI reacts to sign-in instantly and survives page reloads via
- * indexedDB persistence), while any SERVER-gated values (plan, usage)
- * come from /api/auth/me — the source of truth the API routes enforce.
+ * survives page reloads via indexedDB persistence), while SERVER-gated
+ * values (tier, usage) come from /api/auth/me — the authority the API
+ * routes enforce. Server-sent tier is the only one the UI acts on.
  */
 
 import {
@@ -19,29 +24,32 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
 import type { User } from "firebase/auth";
 
 import { getFirebaseAuth, googleProvider } from "@/lib/auth/firebase-client";
-import { PLAN_LIMITS, type Plan } from "@/lib/plans";
+import type { Tier, TierLimits } from "@/lib/plans";
 
 export type AccountOverview = {
   user: { uid: string; email: string | null; name: string | null; picture: string | null };
-  plan: Plan;
-  limits: { generationsPerMonth: number; maxQuestions: number; research: boolean };
+  tier: Tier;
+  plan: string;
+  limits: TierLimits;
   period: string;
-  used: number;
+  used: { generations: number; downloads: number };
 };
 
 type AuthState = {
   loading: boolean;
+  /** null only while Firebase bootstraps; guests get an anonymous User. */
   user: User | null;
-  /* Server-known values (null while unverified or during the handshake). */
+  isGuest: boolean;
+  tier: Tier;
   overview: AccountOverview | null;
   /** True when the server reports the admin SDK (gates) as live. */
   gatesLive: boolean;
   signInError: string | null;
-  plan: () => Plan;
+  tierLimits: () => TierLimits;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -56,14 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [gatesLive, setGatesLive] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
 
-  /** Verify the httpOnly session server-side and refresh plan/usage. */
+  /** Verify the httpOnly session server-side and refresh tier/usage. */
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
       const data = (await res.json().catch(() => null)) as
-        | (AccountOverview & { gatesLive?: boolean })
+        | (AccountOverview & { signedIn?: boolean; gatesLive?: boolean })
         | null;
-      if (data?.user) {
+      if (data?.signedIn) {
         setOverview(data);
         setGatesLive(Boolean(data.gatesLive));
       } else {
@@ -75,15 +83,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Identity signal → sync Firebase user, then the server handshake.
+  // Identity signal → sync Firebase user, then (for non-guests) the session handshake.
   useEffect(() => {
+    const boot = () => setLoading(false);
     if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
-      setLoading(false);
-      return;
+      // No Firebase config at build time: nothing to subscribe. Deferred a
+      // frame per the repo's effect/setState convention (no sync setState).
+      const raf = requestAnimationFrame(boot);
+      return () => cancelAnimationFrame(raf);
     }
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (u) => {
+    let cancelled = false;
+    const auth = getFirebaseAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (u) {
+      if (u && !u.isAnonymous) {
         // Exchange the fresh ID token for the httpOnly session cookie.
         void u
           .getIdToken()
@@ -96,18 +109,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
           .then(() => refresh())
           .catch(() => {
-            /* session mint failing keeps the UI signed-in client-side; API routes stay ungated */
-          })
-          .finally(() => setLoading(false));
+            /* a failed mint keeps the UI signed-in client-side; the server
+               still refuses access until the cookie exists */
+          });
       } else {
-        setOverview(null);
-        setLoading(false);
+        void refresh(); // guest: /me re-reads (or clears) the overview
       }
+      if (!cancelled) setLoading(false);
     });
-    return unsubscribe;
+
+    // No identity at all → mint an anonymous (guest) identity once.
+    const timer = setTimeout(() => {
+      if (!auth.currentUser && !cancelled) {
+        signInAnonymously(auth).catch(() => {
+          /* anonymous auth disabled or offline: signed-out rendering wins */
+          setLoading(false);
+        });
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      unsubscribe();
+    };
   }, [refresh]);
 
-  const plan = useCallback((): Plan => overview?.plan ?? "free", [overview]);
+  const isGuest = Boolean(user?.isAnonymous);
+  const tier: Tier = isGuest ? "guest" : (overview?.tier ?? (user ? "free" : "guest"));
+  const tierLimits = useCallback(
+    () =>
+      overview?.limits ?? {
+        generationsPerMonth: 5,
+        downloadsPerMonth: 0,
+        maxQuestions: 0,
+        research: false,
+      },
+    [overview],
+  );
 
   const signInWithGoogle = useCallback(async () => {
     setSignInError(null);
@@ -129,14 +167,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const signOut = useCallback(async () => {
-    await fbSignOut(getFirebaseAuth());
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    const auth = getFirebaseAuth();
+    const wasUser = auth.currentUser;
+    if (wasUser && !wasUser.isAnonymous) {
+      // End the server session properly (cookie clear + token revocation).
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    }
+    await fbSignOut(auth);
+    // Return to a fresh guest identity (no cookie, no history persistence).
+    await signInAnonymously(auth).catch(() => {});
     setOverview(null);
   }, []);
 
   const value = useMemo(
-    () => ({ loading, user, overview, gatesLive, signInError, plan, signInWithGoogle, signOut, refresh }),
-    [loading, user, overview, gatesLive, signInError, plan, signInWithGoogle, signOut, refresh],
+    () => ({ loading, user, isGuest, tier, overview, gatesLive, signInError, tierLimits, signInWithGoogle, signOut, refresh }),
+    [loading, user, isGuest, tier, overview, gatesLive, signInError, tierLimits, signInWithGoogle, signOut, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -147,5 +192,3 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>.");
   return ctx;
 }
-
-export const FREE_LIMIT = PLAN_LIMITS.free.generationsPerMonth;

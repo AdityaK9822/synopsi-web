@@ -14,16 +14,11 @@ import {
   saveStudyPack,
   UnsupportedFileError,
 } from "@/lib/pipeline";
-import { AdminNotConfiguredError } from "@/lib/server/firebase-admin";
-import { getSessionUser } from "@/lib/server/auth";
+import { ForbiddenError, gateErrorResponse, gateRequest } from "@/lib/server/gate";
 import {
-  QuotaExceededError,
   assertWithinQuota,
-  consumeGeneration,
-  limitsForPlan,
+  consumeTierUse,
 } from "@/lib/server/usage";
-import { getUserPlan } from "@/lib/server/usage";
-import type { Plan } from "@/lib/plans";
 
 const clampCount = (value: unknown): number => {
   const n = parseInt(String(value ?? "10"), 10);
@@ -101,43 +96,36 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.OLLAMA_API_KEY ?? "";
     const model = process.env.OLLAMA_MODEL || DEFAULT_MODEL;
 
-    /* Plan gate: enforced only when the admin SDK is configured (always on
-       Vercel/Render). Soft-fails to the old ungated behaviour in fresh local
-       dev, where FIREBASE_SERVICE_ACCOUNT may not be set yet. */
-    let userPlan: Plan | null = null;
+    /* Access gate — FAIL-CLOSED. Every request is verified: guest (anonymous
+       identity), free or premium, with the tier derived server-side. The
+       old unsigned traffic is rejected outright, and a missing admin
+       config locks the route (503) instead of widening access. */
+    let gate: import("@/lib/server/gate").Gate | null = null;
     try {
-      const user = await getSessionUser(req);
-      if (user) {
-        userPlan = await getUserPlan(user.uid);
-        const limits = limitsForPlan(userPlan);
-        await assertWithinQuota(user.uid, userPlan);
-        if (research && !limits.research) {
-          return NextResponse.json(
-            { error: "Fact-check (research mode) is part of the premium plan — it unlocks soon.", code: "premium_only" }, { status: 403 });
-        }
-        if (questionsEnabled && questionCount > limits.maxQuestions) {
-          return NextResponse.json(
-            { error: `This plan caps revision questions at ${limits.maxQuestions}. Lower the count or switch plans.`, code: "plan_cap" },
-            { status: 403 },
-          );
-        }
-      }
-      // else: signed out or admin-unconfigured — no gate (documented dev path).
-    } catch (exc) {
-      if (exc instanceof QuotaExceededError) {
-        return NextResponse.json(
-          {
-            error: `You've used all ${exc.limit} generations for ${exc.period}. The next tier unlocks more soon.`,
-            code: "quota_exceeded",
-          },
-          { status: 402 },
+      gate = await gateRequest(req);
+      await assertWithinQuota(gate.user.uid, gate.tier, "gen");
+      if (questionsEnabled && gate.limits.maxQuestions === 0) {
+        throw new ForbiddenError(
+          "Revision questions are not part of this tier — sign in (free) unlocks them.",
+          "questions_locked",
         );
       }
-      if (exc instanceof AdminNotConfiguredError) {
-        console.warn("[generate] admin not configured — running ungated");
-      } else {
-        throw exc;
+      if (research && !gate.limits.research) {
+        throw new ForbiddenError(
+          "Fact-check (research mode) is a premium feature.",
+          "premium_only",
+        );
       }
+      if (questionsEnabled && questionCount > gate.limits.maxQuestions) {
+        return NextResponse.json(
+          { error: `This tier caps revision questions at ${gate.limits.maxQuestions}. Lower the count or go premium.`, code: "plan_cap" },
+          { status: 403 },
+        );
+      }
+    } catch (exc) {
+      const gated = gateErrorResponse(exc, { status: 403, error: "Access denied." });
+      if (gated) return NextResponse.json(gated, { status: gated.status });
+      throw exc;
     }
 
     const result = await generateStudyPack(notesText, questionCount, apiKey, {
@@ -161,10 +149,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Count the generation — success-path only, so failed runs stay free.
-    if (userPlan) {
+    if (gate) {
       try {
-        const who = await getSessionUser(req);
-        if (who) await consumeGeneration(who.uid);
+        await consumeTierUse(gate.user.uid, "gen");
       } catch (exc) {
         console.warn("[generate] usage accounting failed:", exc);
       }

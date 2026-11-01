@@ -12,6 +12,21 @@ import type { StudyPack } from "@/lib/types";
 const KEY = "synopsi-history-v1";
 export const MAX_SESSIONS = 30;
 
+/* -------------------------------------------------------- persistence ctrl */
+
+/**
+ * Persistence mode, driven by the auth tier:
+ *   "local"  — persist to localStorage (signed-in Google users)
+ *   "none"   — in-memory only; a refresh is a clean slate (guests)
+ * The mode is set from AuthProvider once the server-verified tier is
+ * known; loaded history also disappears for guests (call clearIfNone).
+ */
+let persistenceMode: "none" | "local" = "none";
+
+export function setHistoryPersistence(mode: "none" | "local"): void {
+  persistenceMode = mode;
+}
+
 /* Snapshot message shapes (localStorage-safe, no File objects). */
 export interface SnapshotUserMsg {
   kind: "user";
@@ -56,6 +71,7 @@ export interface SessionSnapshot {
 /* ----------------------------------------------------------- storage I/O */
 
 export function loadSessions(): SessionSnapshot[] {
+  if (persistenceMode === "none") return []; // guests never reload history
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
@@ -71,6 +87,7 @@ export function loadSessions(): SessionSnapshot[] {
 }
 
 export function storeSessions(all: SessionSnapshot[]) {
+  if (persistenceMode === "none") return; // guests: refresh wipes everything
   try {
     localStorage.setItem(KEY, JSON.stringify(all.slice(0, MAX_SESSIONS)));
   } catch {

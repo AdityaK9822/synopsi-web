@@ -5,11 +5,12 @@ import { LogOut } from "lucide-react";
 import DialogShell from "@/components/shell/DialogShell";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
+import type { Tier } from "@/lib/plans";
 
 /**
  * Account / sign-in surface wired to Firebase Auth (Google only —
- * email/password sign-up is a later build). Signed in, it shows the
- * account, the current plan and the generation quota it backs.
+ * email/password sign-up is a later build). Reflects the SERVER-verified
+ * tier: guest (anonymous), free, premium — with live quota meters.
  */
 export default function AccountDialog({
   open,
@@ -20,23 +21,31 @@ export default function AccountDialog({
 }) {
   const { loading, user, overview, gatesLive, signInError, signInWithGoogle, signOut } = useAuth();
 
-  const signedIn = Boolean(user);
-  const email = overview?.user.email ?? user?.email ?? null;
+  const guest = Boolean(user?.isAnonymous);
+  const signedIn = Boolean(user?.isAnonymous === false);
   const name = overview?.user.name ?? user?.displayName ?? null;
-  const used = overview?.used ?? 0;
-  const limit = overview?.limits.generationsPerMonth ?? null;
-  const plan = overview?.plan ?? "free";
-  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const email = overview?.user.email ?? user?.email ?? null;
+  const tier: Tier = overview?.tier ?? (guest ? "guest" : "free");
+  const planLabel: Record<Tier, string> = { guest: "guest", free: "free", premium: "premium" };
+
+  const gensUsed = overview?.used.generations ?? 0;
+  const gensLimit = overview?.limits.generationsPerMonth ?? (guest ? 5 : 10);
+  const dlUsed = overview?.used.downloads ?? 0;
+  const dlLimit = overview?.limits.downloadsPerMonth ?? (guest ? 0 : 5);
+  const genPct = Math.min(100, Math.round((gensUsed / gensLimit) * 100));
+  const dlPct = dlLimit === null ? 0 : Math.min(100, Math.round((dlUsed / dlLimit) * 100));
 
   return (
     <DialogShell
       open={open}
       onClose={onClose}
-      title={signedIn ? "Account" : "Sign in"}
+      title={signedIn ? "Account" : guest ? "Guest session" : "Sign in"}
       subtitle={
         signedIn
-          ? "Your notes stay local; this only tracks your plan and monthly generations."
-          : "Sign in to keep your chats on every device and unlock your free monthly generations."
+          ? "Your notes stay local; this only tracks your tier and monthly allowance."
+          : guest
+            ? "You're browsing as a guest — everything resets when you refresh."
+            : "Sign in to keep your chats on every device and unlock your free monthly allowance."
       }
     >
       {signedIn ? (
@@ -61,43 +70,27 @@ export default function AccountDialog({
             <span
               className={cn(
                 "ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide",
-                plan === "premium"
-                  ? "bg-accent/15 text-accent"
-                  : "bg-line/60 text-muted",
+                tier === "premium" ? "bg-accent/15 text-accent" : "bg-line/60 text-muted",
               )}
             >
-              {plan}
+              {planLabel[tier]}
             </span>
           </div>
 
-          {limit !== null ? (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="font-semibold text-ink">Generations used</span>
-                <span className="text-muted">
-                  {used} / {limit} this month
-                </span>
-              </div>
-              <div
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={limit}
-                aria-valuenow={used}
-                className="h-2 overflow-hidden rounded-full bg-line/70"
-              >
-                <div
-                  className={cn("h-full rounded-full transition-[width]", pct >= 100 ? "bg-amber-500" : "bg-accent")}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted">Usage counts can’t be read right now — they’ll appear here.</p>
-          )}
+          <div className="flex flex-col gap-1.5">
+            <Meter
+              label="Generations used"
+              used={gensUsed}
+              limit={gensLimit}
+              pct={genPct}
+              suffix="this month"
+            />
+            <Meter label="Downloads used" used={dlUsed} limit={dlLimit} pct={dlPct} suffix="this month" />
+          </div>
 
           {!gatesLive && (
             <p className="text-center text-xs text-muted">
-              Server-side plan enforcement is not configured on this deployment yet.
+              Server-side tier enforcement is not configured on this deployment yet.
             </p>
           )}
 
@@ -114,6 +107,17 @@ export default function AccountDialog({
         </div>
       ) : (
         <div className="flex flex-col gap-4">
+          {guest && (
+            <div className="rounded-2xl border border-line bg-panel p-3.5 text-sm text-muted">
+              <p className="font-semibold text-ink">What a guest gets</p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                <li>5 study packs this month</li>
+                <li>No saved history — a refresh clears everything</li>
+                <li>No fact-check (research) mode, no revision questions, no PDF export</li>
+              </ul>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -128,7 +132,7 @@ export default function AccountDialog({
 
           <p aria-live="polite" className="text-center text-xs text-muted">
             {signInError ??
-              "Your account is created through Google — there’s no separate password for Synopsi."}
+              "Free plan: saved history, 10 packs and 5 PDF downloads a month."}
           </p>
 
           <p className="text-center text-sm text-muted">
@@ -140,9 +144,58 @@ export default function AccountDialog({
   );
 }
 
+/** One quota meter row; hidden entirely when the tier has no cap info. */
+function Meter({
+  label,
+  used,
+  limit,
+  pct,
+  suffix,
+}: {
+  label: string;
+  used: number;
+  limit: number | null;
+  pct: number;
+  suffix: string;
+}) {
+  if (limit === null) {
+    return (
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="font-semibold text-ink">{label}</span>
+        <span className="text-muted">
+          {used} · {suffix} · unlimited
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="font-semibold text-ink">{label}</span>
+        <span className="text-muted">
+          {used} / {limit} {suffix}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={used}
+        aria-label={`${label} for this month`}
+        className="h-2 overflow-hidden rounded-full bg-line/70"
+      >
+        <div
+          className={cn("h-full rounded-full transition-[width]", pct >= 100 ? "bg-amber-500" : "bg-accent")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
- * Official four-colour Google "G" (decorative; the button’s text carries
- * the accessible name) — the one place the docs allow non-stroke SVG.
+ * Official four-colour Google "G" (decorative; the button's text carries
+ * the accessible name) — the one place the style allows non-stroke SVG.
  */
 function GoogleMark({ className = "size-5" }: { className?: string }) {
   return (

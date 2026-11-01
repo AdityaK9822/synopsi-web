@@ -307,11 +307,16 @@ export async function buildStudyPackPdf(
     });
   }
 
-  /* research-mode fact-check + merged Sources list (always last) */
-  if (pack.factChecks.length > 0 || pack.sources.length > 0) {
+  /* research-mode fact-check + merged Sources list (always last).
+     Both fields are OPTIONAL (present only in research mode) — a plain
+     study pack carries neither. Guarded dereference: a non-research
+     pack must export its PDF just fine. */
+  const factChecks = pack.factChecks ?? [];
+  const sources = pack.sources ?? [];
+  if (factChecks.length > 0 || sources.length > 0) {
     p.sectionHeader("Fact-check");
-    drawFactChecks(pack.factChecks, p, bold, regular);
-    if (pack.sources.length > 0) {
+    drawFactChecks(factChecks, p, bold, regular);
+    if (sources.length > 0) {
       p.ensure(30);
       p.text("Sources", {
         x: MARGIN,
@@ -320,7 +325,7 @@ export async function buildStudyPackPdf(
         size: 10,
         gapAfter: 4,
       });
-      pack.sources.forEach((s, i) => {
+      sources.forEach((s, i) => {
         p.ensure(14);
         p.text(`${i + 1}. ${s.name}${s.url ? ` — ${s.url}` : ""}`, {
           x: MARGIN + 14,

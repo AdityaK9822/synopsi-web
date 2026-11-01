@@ -10,7 +10,7 @@ import type { NextRequest } from "next/server";
 
 import { getSessionUser } from "@/lib/server/auth";
 import { AdminNotConfiguredError, adminAuth } from "@/lib/server/firebase-admin";
-import { getAccountOverview, getUserPlan } from "@/lib/server/usage";
+import { getAccountOverview, getUserTier } from "@/lib/server/usage";
 
 export async function GET(req: NextRequest) {
   let gatesLive = false;
@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ signedIn: false, gatesLive });
 
   try {
-    const plan = await getUserPlan(user.uid);
-    const overview = await getAccountOverview(user, plan);
+    const { tier, plan } = await getUserTier(user);
+    const overview = await getAccountOverview(user, tier, plan);
     return NextResponse.json({ ...overview, signedIn: true, gatesLive });
   } catch (exc) {
     console.warn("[auth/me] overview failed:", exc);

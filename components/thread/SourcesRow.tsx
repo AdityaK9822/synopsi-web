@@ -89,7 +89,7 @@ export default function SourcesRow({
           Show fewer
         </button>
       )}
-      <p className="mt-2.5 text-xs text-faint">
+      <p className="mt-2.5 text-xs text-muted">
         {pack.factChecks.length > 0 ? (
           <>
             Every claim below, and the fact-checks, are grounded in these exact

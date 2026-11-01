@@ -10,7 +10,8 @@
       "googleSignIn": {
         "oAuthBrandDisplayName": "Synopsi",
         "supportEmail": "asukathreads@gmail.com"
-      }
+      },
+      "anonymous": true
     }
   }
 }

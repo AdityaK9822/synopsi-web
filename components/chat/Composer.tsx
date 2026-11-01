@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef } from "react";
-import { ArrowUp, LoaderCircle, Paperclip, X } from "lucide-react";
+import { ArrowUp, LoaderCircle, Lock, Paperclip, TriangleAlert, X } from "lucide-react";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { cn, formatBytes } from "@/lib/utils";
 
 const QUESTION_COUNTS = [5, 8, 10, 12, 15, 20] as const;
@@ -36,6 +37,19 @@ export interface ComposerProps {
   onSubmit: () => void;
 }
 
+/**
+ * Honouring tier unlocks: guests (no questions/quiz/research), free
+ * (questions ≤10, no research), premium (all). Display-only gating —
+ * the server remains the authority; this just prevents dead-end errors.
+ */
+function useTierUnlocks() {
+  const { tier, tierLimits } = useAuth();
+  const limits = tierLimits();
+  const questionsAllowed = limits.maxQuestions > 0 && tier !== "guest";
+  const counts = QUESTION_COUNTS.filter((n) => n <= limits.maxQuestions);
+  return { tier, questionsAllowed, researchAllowed: limits.research, counts };
+}
+
 export default function Composer({
   text,
   files,
@@ -55,6 +69,7 @@ export default function Composer({
   onSubmit,
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { tier, questionsAllowed, researchAllowed, counts } = useTierUnlocks();
 
   return (
     <form
@@ -64,6 +79,22 @@ export default function Composer({
       }}
       className="bg-paper"
     >
+      {/* Submit-time validation alert: a real alert box ABOVE the input —
+          icon + text so meaning never rides on colour alone, matching the
+          thread's error-card vocabulary, inside the stable live-region shell
+          (rendered before its text exists) for a reliable announcement. */}
+      <div role="status" aria-live="polite">
+        {error && (
+          <p className="ui-enter-fast mb-2.5 flex items-start gap-2.5 rounded-2xl border border-err/30 bg-err-bg px-4 py-3 text-sm text-err">
+            <TriangleAlert
+              className="mt-0.5 size-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0">{error}</span>
+          </p>
+        )}
+      </div>
+
       {/* The raised "pill" from the reference design: one rounded-3xl card
           with the two-layer drop shadow; the boundary sharpens to the
           contrast-safe accent ring when the composer has focus. */}
@@ -113,7 +144,7 @@ export default function Composer({
               ? "Add pasted notes to combine with the files above — or just send"
               : "Paste your lecture notes here — abbreviations and tangents welcome"
           }
-          className="field-sizing-content max-h-44 w-full resize-none bg-transparent text-base sm:text-sm placeholder:text-faint focus:outline-none"
+          className="field-sizing-content max-h-44 w-full resize-none bg-transparent text-base sm:text-sm placeholder:text-muted focus:outline-none"
         />
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -165,9 +196,18 @@ export default function Composer({
             <button
               type="button"
               aria-pressed={questionsEnabled}
+              disabled={!questionsAllowed}
+              title={
+                questionsAllowed
+                  ? undefined
+                  : tier === "guest"
+                    ? "Revision questions unlock with a free account"
+                    : undefined
+              }
               onClick={() => onQuestionsEnabled(!questionsEnabled)}
-              className="inline-flex h-10 items-center gap-2 rounded-full pr-3.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+              className="inline-flex h-10 items-center gap-2 rounded-full pr-3.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
             >
+              {!questionsAllowed && <Lock className="size-3" aria-hidden="true" />}
               <span
                 aria-hidden="true"
                 className={cn(
@@ -190,11 +230,11 @@ export default function Composer({
                 </label>
                 <select
                   id="snaw-questions"
-                  value={questionCount}
+                  value={(counts as number[]).includes(questionCount) ? questionCount : counts[0]}
                   onChange={(e) => onQuestionCount(Number(e.target.value))}
                   className="max-w-16 cursor-pointer rounded-r-full bg-transparent pr-3 text-sm font-medium text-ink transition-[background-color] focus:outline-none"
                 >
-                  {QUESTION_COUNTS.map((n) => (
+                  {counts.map((n) => (
                     <option key={n} value={n}>
                       {n}
                     </option>
@@ -207,14 +247,22 @@ export default function Composer({
           <button
             type="button"
             aria-pressed={quizMode}
+            disabled={!questionsAllowed}
+            title={
+              questionsAllowed
+                ? undefined
+                : "Quiz mode unlocks with a free account"
+            }
             onClick={() => onQuizMode(!quizMode)}
             className={cn(
               PILL,
               quizMode
                 ? "border-primary/40 bg-primary/10 text-ink"
                 : "border-line bg-card text-muted hover:border-line-strong hover:text-ink",
+              !questionsAllowed && "cursor-not-allowed opacity-60 hover:border-line hover:text-muted",
             )}
           >
+            {!questionsAllowed && <Lock className="size-3" aria-hidden="true" />}
             <span
               aria-hidden="true"
               className={cn("size-1.5 rounded-full", quizMode ? "bg-primary" : "bg-line-strong")}
@@ -222,18 +270,23 @@ export default function Composer({
             Quiz mode
           </button>
 
-          {/* Research / fact-check: user-enabled, off by default (T3) */}
+          {/* Research / fact-check: user-enabled, off by default (T3);
+              premium-only — locked for other tiers. */}
           <button
             type="button"
             aria-pressed={researchMode}
+            disabled={!researchAllowed}
+            title={researchAllowed ? undefined : "Fact-check is part of premium"}
             onClick={() => onResearchMode(!researchMode)}
             className={cn(
               PILL,
               researchMode
                 ? "border-primary/40 bg-primary/10 text-ink"
                 : "border-line bg-card text-muted hover:border-line-strong hover:text-ink",
+              !researchAllowed && "cursor-not-allowed opacity-60 hover:border-line hover:text-muted",
             )}
           >
+            {!researchAllowed && <Lock className="size-3" aria-hidden="true" />}
             <span
               aria-hidden="true"
               className={cn(
@@ -271,14 +324,6 @@ export default function Composer({
       <p className="mt-2 px-1 text-center text-xs text-muted">
         Enter to send · Shift+Enter for a new line · answers come strictly from your notes
       </p>
-
-      {/* Persistent live region: the shell stays mounted, only the text
-          updates — screen readers announce it reliably. */}
-      <div role="status" aria-live="polite">
-        {error && (
-          <p className="mt-1 px-1 text-center text-xs font-medium text-err">{error}</p>
-        )}
-      </div>
     </form>
   );
 }

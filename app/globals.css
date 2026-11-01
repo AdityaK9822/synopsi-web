@@ -19,7 +19,9 @@
   --line-strong: #cbd5e1;  /* slate-300 form-field boundaries */
   --ink: #1e293b;          /* slate-800 */
   --muted: #475569;        /* 6.7:1 on paper, 6.4:1 on canvas — AA */
-  --faint: #94a3b8;        /* decorative rails/carets/markers only */
+  --faint: #94a3b8;        /* decorative rails/carets/icons only — any READABLE
+                              copy must use --muted or darker (this value fails
+                              AA for text: 2.8:1 on paper) */
   --primary: #4f46e5;      /* indigo-600, white label 4.54:1 */
   --primary-hover: #4338ca; /* indigo-700, white label 6.29:1 */
   --accent: #4338ca;       /* accent as text/icons, AA on both surfaces */

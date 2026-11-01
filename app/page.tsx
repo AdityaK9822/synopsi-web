@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clipboard,
   FileText,
+  Info,
   List,
   ScanLine,
   TriangleAlert,
@@ -15,7 +16,7 @@ import ResultCard from "@/components/chat/ResultCard";
 import TypingDots from "@/components/chat/TypingDots";
 import TypewriterTagline from "@/components/chat/TypewriterTagline";
 import AccountDialog from "@/components/shell/AccountDialog";
-import { AuthProvider } from "@/components/auth/AuthProvider";
+import { AuthProvider, useAuth } from "@/components/auth/AuthProvider";
 import HelpDialog from "@/components/shell/HelpDialog";
 import SettingsDialog from "@/components/shell/SettingsDialog";
 import IconRail from "@/components/shell/IconRail";
@@ -35,6 +36,7 @@ import {
 } from "@/lib/history";
 import type { StudyPack } from "@/lib/types";
 import { cn, formatBytes } from "@/lib/utils";
+import { setHistoryPersistence } from "@/lib/history";
 
 /* ------------------------------------------------------------------ types */
 
@@ -128,26 +130,31 @@ const INPUT_KINDS = [
 ] as const;
 
 /* Collapsible, resizable panel prefs. Defaults are SSR-safe (the first
-   client render must match the server); persisted values apply after mount. */
-const UI_KEY = "synopsi-ui-v1";
+   client render must match the server); persisted values apply after mount.
+   v2: slimmer defaults (272/256) — the first pass was judged too wide. */
+const UI_KEY = "synopsi-ui-v2";
 const HISTORY_MIN = 240;
-const HISTORY_MAX = 440;
-const HISTORY_DEF = 320;
-const OVERVIEW_MIN = 240;
-const OVERVIEW_MAX = 400;
-const OVERVIEW_DEF = 288;
+const HISTORY_MAX = 400;
+const HISTORY_DEF = 272;
+const OVERVIEW_MIN = 200;
+const OVERVIEW_MAX = 320;
+const OVERVIEW_DEF = 256;
+/** Width of a collapsed panel's dock strip (the logo-on-the-edge row). */
+const DOCK_W = 48;
 
 interface UiPrefs {
   historyVisible: boolean;
   historyWidth: number;
-  overviewVisible: boolean;
+  /** undefined = user never toggled it → let the breakpoint decide
+      (expanded at xl+; docked below). Once toggled it persists. */
+  overviewVisible: boolean | undefined;
   overviewWidth: number;
 }
 
 const DEFAULT_UI: UiPrefs = {
   historyVisible: true,
   historyWidth: HISTORY_DEF,
-  overviewVisible: true,
+  overviewVisible: undefined,
   overviewWidth: OVERVIEW_DEF,
 };
 
@@ -158,16 +165,15 @@ function loadUiPrefs(): UiPrefs {
     const raw = localStorage.getItem(UI_KEY);
     if (!raw) return DEFAULT_UI;
     const p = JSON.parse(raw) as Partial<UiPrefs> | null;
+    const bool = (v: unknown) => (typeof v === "boolean" ? v : undefined);
     const width = (v: unknown, min: number, max: number, def: number) =>
       typeof v === "number" && Number.isFinite(v)
         ? Math.min(max, Math.max(min, Math.round(v)))
         : def;
     return {
-      historyVisible:
-        typeof p?.historyVisible === "boolean" ? p.historyVisible : true,
+      historyVisible: bool(p?.historyVisible) ?? true,
       historyWidth: width(p?.historyWidth, HISTORY_MIN, HISTORY_MAX, HISTORY_DEF),
-      overviewVisible:
-        typeof p?.overviewVisible === "boolean" ? p.overviewVisible : true,
+      overviewVisible: bool(p?.overviewVisible),
       overviewWidth: width(p?.overviewWidth, OVERVIEW_MIN, OVERVIEW_MAX, OVERVIEW_DEF),
     };
   } catch {
@@ -184,13 +190,23 @@ function storeUiPrefs(next: UiPrefs) {
   }
 }
 
-/** When a panel hides while focus is inside it, hand focus to the panel's
-    disclosure toggle (stable ids kept on the TopBar buttons + asides). */
+/** When a panel collapses while focus is inside it, hand focus to its
+    always-mounted outside control (the icon rail's brand toggle). */
 function moveFocusToToggle(panelId: string, toggleId: string) {
   const active = document.activeElement;
   const panel = document.getElementById(panelId);
   if (panel && active instanceof Node && panel.contains(active)) {
     document.getElementById(toggleId)?.focus();
+  }
+}
+
+/** Overview variant: its reopen control is the dock button, which mounts on
+    the NEXT commit, so focus moves a frame after the state flip lands. */
+function moveFocusToDock(panelId: string, dockId: string) {
+  const active = document.activeElement;
+  const panel = document.getElementById(panelId);
+  if (panel && active instanceof Node && panel.contains(active)) {
+    requestAnimationFrame(() => document.getElementById(dockId)?.focus());
   }
 }
 
@@ -220,7 +236,21 @@ function currentSnapshot(msgs: ThreadMessage[]): SnapshotMsg[] {
 
 /* ---------------------------------------------------------------- page */
 
+/**
+ * Page root: the auth provider wraps the entire app shell, so every
+ * nested stripe (dialog, rail, composer, cards) can read the verified
+ * tier. The shell itself lives in <HomeInner /> one level down —
+ * a component cannot consume its own context, hence the split.
+ */
 export default function Page() {
+  return (
+    <AuthProvider>
+      <HomeInner />
+    </AuthProvider>
+  );
+}
+
+function HomeInner() {
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [pasted, setPastedState] = useState("");
   const [files, setFilesState] = useState<File[]>([]);
@@ -271,15 +301,48 @@ export default function Page() {
     // setState synchronously inside the effect body.
     const raf = requestAnimationFrame(() => {
       setDark(document.documentElement.classList.contains("dark"));
-      setSessions(loadSessions());
+      // NOTE: chat-history load is NOT here anymore — it is tier-driven
+      // once the server has verified the identity below, so guests never
+      // see unowned persisted history.
       // Persisted panel prefs apply here: still deferred (no setState in the
-      // effect body), and only after the SSR-safe first paint.
+      // effect body), and only after the SSR-safe first paint. The unstored
+      // overview default is resolved ONCE from the viewport — expanded at
+      // xl+ (1280px), docked below — so the rail is always findable. It is
+      // written into uiRef/ui state but NOT stored: explicit toggles store.
       const prefs = loadUiPrefs();
-      uiRef.current = prefs;
-      setUi(prefs);
+      const wide = window.innerWidth >= 1280;
+      const resolved: UiPrefs = {
+        ...prefs,
+        overviewVisible: prefs.overviewVisible ?? wide,
+      };
+      uiRef.current = resolved;
+      setUi(resolved);
     });
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  /* History persistence is a TIER right, not a default: guests get an
+     in-memory session only (refresh = clean slate), Google users get
+     localStorage. Runs once the auth state has settled; the eventual
+     check-in only reloads persisted history once. */
+  const { tier, isGuest, loading } = useAuth();
+  const historyLoadedRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (isGuest) {
+      setHistoryPersistence("none");
+      // Downgrade (or first visit): drop anything already kept in memory,
+      // including history that outlived a signed-out session.
+      setSessions([]);
+      historyLoadedRef.current = false;
+    } else {
+      setHistoryPersistence("local");
+      if (!historyLoadedRef.current) {
+        historyLoadedRef.current = true;
+        setSessions(loadSessions());
+      }
+    }
+  }, [loading, isGuest]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -304,12 +367,13 @@ export default function Page() {
     requestAnimationFrame(() => root.classList.remove("no-theme-transition"));
   }
 
-  /* ------------------------------------------------ panel show/width */
-  /* The outer <aside> shells animate width (see .side-anim in globals.css)
-     and go inert while hidden; the inner .side-content keeps its fixed
-     width so text never rewraps mid-flight. Toggles persist immediately;
-     drag sizes persist on commit. All writers share uiRef as the source
-     of truth, so a keyboard binding installed once reads fresh values. */
+  /* ------------------------------------------------- panel show/width */
+  /* History fully hides (width → 0; the icon rail's brand button, always
+     visible, reopens it); the overview docks to a slim strip (DOCK_W) that
+     stays findable at lg. Both animate via .side-anim: the shell slides,
+     the inner .side-content keeps its fixed width (no rewrap) and fades.
+     Toggles persist immediately; drag sizes persist on commit. All writers
+     share uiRef as the source of truth, so the ⌘B binding reads fresh. */
 
   const applyUi = useCallback((next: UiPrefs) => {
     uiRef.current = next;
@@ -330,6 +394,8 @@ export default function Page() {
     const nextVisible = !uiRef.current.historyVisible;
     setPanelPrefs({ historyVisible: nextVisible });
     if (!nextVisible) {
+      // Target: the icon rail's brand button (synopsi-history-toggle) —
+      // always mounted where the panel exists, so focus moves immediately.
       moveFocusToToggle("synopsi-history-panel", "synopsi-history-toggle");
     }
   }, [setPanelPrefs]);
@@ -338,7 +404,7 @@ export default function Page() {
     const nextVisible = !uiRef.current.overviewVisible;
     setPanelPrefs({ overviewVisible: nextVisible });
     if (!nextVisible) {
-      moveFocusToToggle("synopsi-overview-panel", "synopsi-overview-toggle");
+      moveFocusToDock("synopsi-overview-panel", "synopsi-overview-dock");
     }
   }, [setPanelPrefs]);
 
@@ -733,28 +799,74 @@ export default function Page() {
   }, [messages]);
 
   return (
-    <AuthProvider>
     <div className="flex h-dvh overflow-hidden">
+      {/* Skip nav: the icon rail + top bar are the whole chrome; the notes
+          input is where work starts. The composer renders in both branches,
+          so #snaw-notes always exists. */}
+      <a
+        href="#snaw-notes"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-full focus:bg-primary focus:px-4 focus:py-2.5 focus:text-sm focus:font-bold focus:text-white"
+      >
+        Skip to your notes
+      </a>
       <IconRail
         onNewChat={newChat}
         onOpenHelp={() => setHelpOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAccount={() => setAccountOpen(true)}
+        onToggleHistory={toggleHistoryPanel}
+        historyOpen={ui.historyVisible}
         helpOpen={helpOpen}
         settingsOpen={settingsOpen}
       />
 
-      <aside className="hidden w-80 shrink-0 border-r border-line bg-panel lg:block">
-        <HistoryPanel
-          sessions={sessions}
-          activeId={activeId}
-          onSelect={openSession}
-          onNew={newChat}
-          onDelete={deleteSession}
-        />
+      {/* History panel (lg+): collapsible + resizable. The OUTER aside is
+          the animated shell (.side-anim): it slides its width to 0 while
+          hiding (fully hidden — reopen via the brand button in the icon
+          rail); the inner content keeps a fixed width and fades so text
+          never rewraps mid-flight, and is inert while hidden. */}
+      <aside
+        id="synopsi-history-panel"
+        aria-label="Chat history"
+        className={cn(
+          "side-anim relative hidden h-full shrink-0 overflow-hidden border-r border-line bg-panel lg:block",
+          draggingPanel === "history" && "no-motion",
+        )}
+        style={{ width: ui.historyVisible ? ui.historyWidth : 0 }}
+        inert={!ui.historyVisible || undefined}
+      >
+        <div
+          className={cn("side-content h-full", !ui.historyVisible && "opacity-0")}
+          style={{ width: ui.historyWidth }}
+        >
+          <HistoryPanel
+            sessions={sessions}
+            activeId={activeId}
+            onSelect={openSession}
+            onDelete={deleteSession}
+            onCollapse={toggleHistoryPanel}
+          />
+        </div>
+        {ui.historyVisible && (
+          <Splitter
+            value={ui.historyWidth}
+            min={HISTORY_MIN}
+            max={HISTORY_MAX}
+            def={HISTORY_DEF}
+            side="right"
+            label="Resize chat history panel"
+            controls="synopsi-history-panel"
+            active={draggingPanel === "history"}
+            onActiveChange={(v) => setDraggingPanel(v ? "history" : null)}
+            onChange={(w) => applyUi({ ...uiRef.current, historyWidth: w })}
+            onCommit={() => setPanelPrefs({})}
+          />
+        )}
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col border-r border-line bg-paper">
+      {/* No border-r here: the overview rail carries its own border-l —
+          two hairlines would stack at this edge. */}
+      <main className="flex min-w-0 flex-1 flex-col bg-paper">
         <TopBar
           title={threadTitle}
           createdAt={sessionCreatedAt}
@@ -768,7 +880,10 @@ export default function Page() {
 
         {empty ? (
           <div className="flex flex-1 items-center justify-center overflow-y-auto overscroll-contain">
-            <div className="mx-auto w-full max-w-3xl px-4 py-10 text-center sm:px-8">
+            <div
+              key={`hero-${shellEpoch}`}
+              className="ui-enter mx-auto w-full max-w-3xl px-4 py-10 text-center sm:px-8"
+            >
               <Logomark className="mx-auto size-14" />
               {/* Dynamic tagline: the leading sentence is static, the keyword is
                   typed/cycled — reduced-motion users get a plain fade-free swap. */}
@@ -796,7 +911,7 @@ export default function Page() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 text-xs text-faint">or a mix of several</p>
+              <p className="mt-2 text-xs text-muted">or a mix of several</p>
 
               <p className="mt-5 text-xs text-muted">
                 gemma4:31b via Ollama Cloud (free tier)
@@ -815,7 +930,10 @@ export default function Page() {
             aria-label="Conversation"
             className="flex-1 overflow-y-auto overscroll-contain"
           >
-            <div className="mx-auto w-full max-w-3xl px-4 sm:px-8">
+            <div
+              key={`thread-${shellEpoch}`}
+              className="ui-enter mx-auto w-full max-w-3xl px-4 sm:px-8"
+            >
               <ol className="space-y-6 pb-6 pt-6">
                 {messages.map((m) =>
                   m.role === "user" ? (
@@ -939,11 +1057,60 @@ export default function Page() {
         </div>
       </main>
 
-      <OverviewRail
-        result={lastDone ? lastDone.result : null}
-        researchUsed={lastDone?.researchUsed ?? false}
-        quizMode={lastDone?.quizMode ?? false}
-      />
+      {/* Overview rail (lg+): same shell vocabulary — collapsible (dock to
+          a slim strip on the right) + resizable. First-run default: docked
+          below 1280px, expanded above (mount resolves it once). Grows
+          leftward: the splitter sits on its left edge. */}
+      <aside
+        id="synopsi-overview-panel"
+        aria-label="Pack overview"
+        className={cn(
+          "side-anim relative hidden h-full shrink-0 overflow-hidden border-l border-line bg-paper lg:block",
+          draggingPanel === "overview" && "no-motion",
+        )}
+        style={{ width: ui.overviewVisible ? ui.overviewWidth : DOCK_W }}
+      >
+        <div
+          className={cn("side-content h-full", !ui.overviewVisible && "opacity-0")}
+          style={{ width: ui.overviewWidth }}
+          inert={!ui.overviewVisible || undefined}
+        >
+          <OverviewRail
+            result={lastDone ? lastDone.result : null}
+            researchUsed={lastDone?.researchUsed ?? false}
+            quizMode={lastDone?.quizMode ?? false}
+            onCollapse={toggleOverviewPanel}
+          />
+        </div>
+        {ui.overviewVisible ? (
+          <Splitter
+            value={ui.overviewWidth}
+            min={OVERVIEW_MIN}
+            max={OVERVIEW_MAX}
+            def={OVERVIEW_DEF}
+            side="left"
+            label="Resize pack overview panel"
+            controls="synopsi-overview-panel"
+            active={draggingPanel === "overview"}
+            onActiveChange={(v) => setDraggingPanel(v ? "overview" : null)}
+            onChange={(w) => applyUi({ ...uiRef.current, overviewWidth: w })}
+            onCommit={() => setPanelPrefs({})}
+          />
+        ) : (
+          <button
+            id="synopsi-overview-dock"
+            type="button"
+            onClick={toggleOverviewPanel}
+            title="Show pack overview"
+            aria-label="Show pack overview panel"
+            className="ui-enter absolute inset-y-0 right-0 z-10 grid w-12 place-items-center transition [transition-property:color] hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+          >
+            <span className="grid size-9 place-items-center rounded-full border border-line bg-card text-accent">
+              <Info className="size-4.5" aria-hidden="true" />
+            </span>
+          </button>
+        )}
+      </aside>
 
       {/* ----------------------------------------- history drawer (<lg) -------- */}
       {drawerOpen && (
@@ -958,7 +1125,7 @@ export default function Page() {
             role="dialog"
             aria-modal="true"
             aria-label="Chat history"
-            className="dw-panel fixed inset-y-0 left-0 z-40 flex w-80 max-w-[85vw] flex-col border-r border-line bg-panel shadow-xl lg:hidden"
+            className="dw-panel fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel shadow-xl lg:hidden"
           >
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <p className="text-sm font-bold">Chat history</p>
@@ -979,6 +1146,7 @@ export default function Page() {
                 onNew={newChat}
                 onDelete={deleteSession}
                 autoFocusSearch
+                searchId="synopsi-search-drawer"
               />
             </div>
           </div>
@@ -999,6 +1167,5 @@ export default function Page() {
       />
       <AccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} />
     </div>
-    </AuthProvider>
   );
 }

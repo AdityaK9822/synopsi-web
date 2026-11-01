@@ -11,9 +11,11 @@ import {
   FileCode,
   Lightbulb,
   ListChecks,
+  Lock,
   SearchCheck,
 } from "lucide-react";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import QuestionCard, { type AnswerState } from "@/components/QuestionCard";
 import SourcesRow from "@/components/thread/SourcesRow";
 import {
@@ -83,6 +85,7 @@ export default function ResultCard({
   quizMode = false,
   researchUsed = false,
 }: ResultCardProps) {
+  const { isGuest: guest } = useAuth();
   const { pack, sourceName, model, raw } = result;
   const [view, setView] = useState<View>("pack");
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -318,28 +321,38 @@ export default function ResultCard({
         </ul>
       )}
 
-      {/* view switcher — native buttons with aria-pressed (no fake tablist) */}
+      {/* view switcher — native buttons with aria-pressed (no fake tablist);
+          the PDF view is disabled for guests (0 download allowance) */}
       <div className="mt-4 inline-flex items-center gap-1 rounded-xl bg-line/50 p-1">
-        {VIEWS.map((v) => (
+        {VIEWS.map((v) => {
+          const pdfLocked = v.id === "pdf" && guest;
+          return (
           <button
             key={v.id}
             type="button"
             aria-pressed={view === v.id}
+            disabled={pdfLocked}
+            title={pdfLocked ? "PDF export unlocks when you sign in (5 free downloads a month)" : undefined}
             onClick={() => setView(v.id)}
             className={cn(
               "flex h-9 items-center rounded-lg px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none",
               view === v.id
                 ? "bg-card text-ink shadow-sm"
                 : "text-muted hover:text-ink",
+              pdfLocked && "cursor-not-allowed opacity-60 hover:text-muted",
             )}
           >
+            {pdfLocked && <Lock className="size-3.5 mr-1.5" aria-hidden="true" />}
             {v.label}
           </button>
-        ))}
+          );
+        })}
       </div>
 
-      {/* ------------------------------------------------------------ pack */}
-      {view === "pack" &&
+      {/* View content is keyed per view so a tab switch is bridged with the
+          repo's shared 300ms enter — never a hard teleport. */}
+      <div key={view} className="ui-enter">
+        {view === "pack" &&
         (result.parsed ? (
           <div className="mt-6 space-y-8">
             {/* Research turns open with the Sources block, mirroring the
@@ -625,6 +638,7 @@ export default function ResultCard({
           )}
         </div>
       )}
+      </div>
 
       {/* actions — AFTER the output: copy + every download live below the
           content, never before it. */}

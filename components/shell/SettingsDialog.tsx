@@ -128,7 +128,7 @@ export default function SettingsDialog({
           )}
         </section>
 
-        <p className="text-center text-xs text-faint">Synopsi 0.1.0 — Smart Academic Notes Assistant</p>
+        <p className="text-center text-xs text-muted">Synopsi 0.1.0 — Smart Academic Notes Assistant</p>
       </div>
     </DialogShell>
   );

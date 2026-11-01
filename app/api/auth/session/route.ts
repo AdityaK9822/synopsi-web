@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { mintSessionCookie, SESSION_COOKIE, SESSION_TTL_SECONDS, type AuthUser } from "@/lib/server/auth";
 import { AdminNotConfiguredError, adminAuth, adminConfigured } from "@/lib/server/firebase-admin";
-import { getAccountOverview, upsertUserDoc } from "@/lib/server/usage";
+import { getAccountOverview, getUserTier, upsertUserDoc } from "@/lib/server/usage";
 
 export async function POST(req: NextRequest) {
   if (!adminConfigured()) {
@@ -48,9 +48,10 @@ export async function POST(req: NextRequest) {
     await upsertUserDoc(user);
     const cookieValue = await mintSessionCookie(idToken);
 
+    const { tier, plan } = await getUserTier(user);
     const res = NextResponse.json({
       ok: true,
-      ...(await getAccountOverview(user)),
+      ...(await getAccountOverview(user, tier, plan)),
       gatesLive: true,
     });
     res.cookies.set(SESSION_COOKIE, cookieValue, {
