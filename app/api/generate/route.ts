@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
       if (exc instanceof QuotaExceededError) {
         return NextResponse.json(
           {
-            error: `You've used all ${exc.limit} free generations for ${exc.period} — premium unlocks 300/month and lands soon.`,
+            error: `You've used all ${exc.limit} generations for ${exc.period}. The next tier unlocks more soon.`,
             code: "quota_exceeded",
           },
           { status: 402 },
