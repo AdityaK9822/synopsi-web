@@ -31,13 +31,13 @@ export type TierLimits = {
 
 export const TIER_LIMITS: Record<Tier, TierLimits> = {
   guest: {
-    generationsPerMonth: 5,
+    generationsPerMonth: 3,
     downloadsPerMonth: 0,
     maxQuestions: 0,
     research: false,
   },
   free: {
-    generationsPerMonth: 10,
+    generationsPerMonth: 3,
     downloadsPerMonth: 5,
     maxQuestions: 10,
     research: false,

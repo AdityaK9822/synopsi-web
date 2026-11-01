@@ -28,7 +28,7 @@ import { onAuthStateChanged, signInAnonymously, signInWithPopup, signOut as fbSi
 import type { User } from "firebase/auth";
 
 import { getFirebaseAuth, googleProvider } from "@/lib/auth/firebase-client";
-import type { Tier, TierLimits } from "@/lib/plans";
+import { TIER_LIMITS, type Tier, type TierLimits } from "@/lib/plans";
 
 export type AccountOverview = {
   user: { uid: string; email: string | null; name: string | null; picture: string | null };
@@ -83,10 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Identity signal → sync Firebase user, then (for non-guests) the session handshake.
-  useEffect(() => {
-    const boot = () => setLoading(false);
-    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+    // Identity signal → sync Firebase user, then the session handshake.
+    // EVERY user — including anonymous guests — mints the httpOnly session
+    // cookie: the server-side tier/quota engine can only identify who it
+    // is talking to through that cookie. Skipping it for guests would
+    // leave guest traffic unauthenticated (and the API refuses it).
+    useEffect(() => {
+      const boot = () => setLoading(false);
+      if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
       // No Firebase config at build time: nothing to subscribe. Deferred a
       // frame per the repo's effect/setState convention (no sync setState).
       const raf = requestAnimationFrame(boot);
@@ -96,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const auth = getFirebaseAuth();
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (u && !u.isAnonymous) {
+      if (u) {
         // Exchange the fresh ID token for the httpOnly session cookie.
         void u
           .getIdToken()
@@ -113,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                still refuses access until the cookie exists */
           });
       } else {
-        void refresh(); // guest: /me re-reads (or clears) the overview
+        void refresh(); // /me re-reads (or clears) the overview
       }
       if (!cancelled) setLoading(false);
     });
@@ -137,13 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isGuest = Boolean(user?.isAnonymous);
   const tier: Tier = isGuest ? "guest" : (overview?.tier ?? (user ? "free" : "guest"));
   const tierLimits = useCallback(
-    () =>
-      overview?.limits ?? {
-        generationsPerMonth: 5,
-        downloadsPerMonth: 0,
-        maxQuestions: 0,
-        research: false,
-      },
+    () => overview?.limits ?? TIER_LIMITS.guest,
     [overview],
   );
 

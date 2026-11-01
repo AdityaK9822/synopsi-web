@@ -5,7 +5,7 @@ import { LogOut } from "lucide-react";
 import DialogShell from "@/components/shell/DialogShell";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
-import type { Tier } from "@/lib/plans";
+import { TIER_LIMITS, type Tier } from "@/lib/plans";
 
 /**
  * Account / sign-in surface wired to Firebase Auth (Google only —
@@ -29,9 +29,9 @@ export default function AccountDialog({
   const planLabel: Record<Tier, string> = { guest: "guest", free: "free", premium: "premium" };
 
   const gensUsed = overview?.used.generations ?? 0;
-  const gensLimit = overview?.limits.generationsPerMonth ?? (guest ? 5 : 10);
+  const gensLimit = overview?.limits.generationsPerMonth ?? TIER_LIMITS.guest.generationsPerMonth;
   const dlUsed = overview?.used.downloads ?? 0;
-  const dlLimit = overview?.limits.downloadsPerMonth ?? (guest ? 0 : 5);
+  const dlLimit = overview?.limits.downloadsPerMonth ?? TIER_LIMITS.guest.downloadsPerMonth;
   const genPct = Math.min(100, Math.round((gensUsed / gensLimit) * 100));
   const dlPct = dlLimit === null ? 0 : Math.min(100, Math.round((dlUsed / dlLimit) * 100));
 
@@ -111,7 +111,7 @@ export default function AccountDialog({
             <div className="rounded-2xl border border-line bg-panel p-3.5 text-sm text-muted">
               <p className="font-semibold text-ink">What a guest gets</p>
               <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                <li>5 study packs this month</li>
+                <li>3 study packs this month</li>
                 <li>No saved history — a refresh clears everything</li>
                 <li>No fact-check (research) mode, no revision questions, no PDF export</li>
               </ul>
@@ -132,7 +132,7 @@ export default function AccountDialog({
 
           <p aria-live="polite" className="text-center text-xs text-muted">
             {signInError ??
-              "Free plan: saved history, 10 packs and 5 PDF downloads a month."}
+              "Free plan: saved history, 3 packs and 5 PDF downloads a month."}
           </p>
 
           <p className="text-center text-sm text-muted">
