@@ -6,6 +6,7 @@ import { Search, SquarePen, X, Lightbulb } from "lucide-react";
 import { relativeTime } from "@/lib/utils";
 import type { SessionSnapshot } from "@/lib/history";
 import { cn } from "@/lib/utils";
+import { Logomark } from "@/components/brand/Logo";
 
 const TIPS_KEY = "synopsi-tips-dismissed";
 
@@ -34,18 +35,26 @@ function matches(s: SessionSnapshot, q: string): boolean {
 export default function HistoryPanel({
   sessions,
   activeId,
+  generatingIds,
   onSelect,
   onNew,
   onDelete,
   autoFocusSearch,
+  searchId = "synopsi-search",
+  onCollapse,
 }: {
   sessions: SessionSnapshot[];
   activeId: string | null;
+  generatingIds?: string[];
   onSelect: (id: string) => void;
-  onNew: () => void;
+  onNew?: () => void;
   onDelete: (id: string) => void;
   /** The drawer twin sets this when it opens, for keyboard entry. */
   autoFocusSearch?: boolean;
+  /** Desktop-only collapse control (returns null otherwise). */
+  onCollapse?: () => void;
+  /** DOM id for the search input — drawer twin passes `"synopsi-search-drawer"`. */
+  searchId?: string;
 }) {
   const [query, setQuery] = useState("");
   const [tipsDismissed, setTipsDismissed] = useState(false);
@@ -69,7 +78,10 @@ export default function HistoryPanel({
     <div className="flex h-full w-full flex-col bg-panel">
       {/* header: brand + new chat (the design's edit affordance) */}
       <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
-        <p className="truncate text-xl font-bold tracking-tight">🌸 Synopsi</p>
+        <span className="flex items-center gap-2 truncate">
+          <Logomark tone="rose" className="size-7" />
+          <span className="text-xl font-bold tracking-tight">Synopsi</span>
+        </span>
         <button
           type="button"
           onClick={onNew}
