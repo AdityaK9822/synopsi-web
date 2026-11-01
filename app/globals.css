@@ -1,0 +1,243 @@
+@import "tailwindcss";
+
+/* Manual dark mode via a .dark class on <html> (set pre-hydration in layout). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design system (slate + indigo, from the Synopsi Figma reference).
+   One slate neutral ramp, one indigo accent, three status ramps.
+   Rules: components reference SEMANTIC tokens only. `--primary` is for
+   FILLS (white label on the accent). Any accent used as TEXT/ICONS must
+   use `--accent`, the contrast-safe pair (light #4338ca = 6.29:1 on
+   white, dark #a5b4fc = 7.5:1 on the dark card). `--faint` is
+   decorative only (hairline rails, carets) — never body text. */
+:root {
+  --background: #f8fafc;   /* app canvas (slate-50) */
+  --paper: #ffffff;        /* the "written on a page" content sheet */
+  --card: #ffffff;
+  --panel: #f8fafc;        /* rails / sidebars */
+  --line: #e2e8f0;         /* slate-200 hairlines */
+  --line-strong: #cbd5e1;  /* slate-300 form-field boundaries */
+  --ink: #1e293b;          /* slate-800 */
+  --muted: #475569;        /* 6.7:1 on paper, 6.4:1 on canvas — AA */
+  --faint: #94a3b8;        /* decorative rails/carets/markers only */
+  --primary: #4f46e5;      /* indigo-600, white label 4.54:1 */
+  --primary-hover: #4338ca; /* indigo-700, white label 6.29:1 */
+  --accent: #4338ca;       /* accent as text/icons, AA on both surfaces */
+  --ok: #0b6b3a;   --ok-bg: #e9f7ee;   /* 5.98:1 */
+  --err: #8f1d2c;  --err-bg: #fdeeee;  /* 7.83:1 */
+  --info: #3b4a9f; --info-bg: #eef0fc; /* 7.4:1 */
+}
+
+.dark {
+  --background: #0b1220;
+  --paper: #111a2b;
+  --card: #111a2b;
+  --panel: #0d1526;
+  --line: #22304a;
+  --line-strong: #324467;
+  --ink: #e2e8f0;
+  --muted: #9db0c8;        /* 6.9:1 on card */
+  --faint: #64748b;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --accent: #a5b4fc;
+  --ok: #a8e7c0;   --ok-bg: #10241a;
+  --err: #ffb3ba;  --err-bg: #2a1418;
+  --info: #c9d2f9; --info-bg: #1a1e33;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-err: var(--err);
+  --color-err-bg: var(--err-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --font-sans: var(--font-jakarta);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Shared motion vocabulary (extend these, never invent parallel ones). */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-fast: 160ms;
+  --motion-enter: 300ms;
+  --motion-panel: 220ms;
+}
+
+body {
+  background: var(--background);
+  color: var(--ink);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: var(--primary);
+  color: #ffffff; /* white on #4f46e5 = 4.54:1, passes in both modes */
+}
+
+/* One-frame suppression while the theme class flips, so no color
+   transition smears across the switch. Applied from JS in page.tsx. */
+.no-theme-transition,
+.no-theme-transition *,
+.no-theme-transition *::before,
+.no-theme-transition *::after {
+  transition: none !important;
+}
+
+/* Typing-indicator dots: a looping animation for a moment the user sees
+   once per request (occasional). Dots are decorative aria-hidden spans;
+   the adjacent text label carries the state, reduced-motion users get
+   the same static dots simply without the bounce. */
+@media (prefers-reduced-motion: no-preference) {
+  .typing-dot {
+    animation: typing-bounce 1.1s var(--ease-out) infinite;
+  }
+  .typing-dot:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .typing-dot:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes typing-bounce {
+    0%,
+    60%,
+    100% {
+      translate: 0 0;
+      opacity: 0.45;
+    }
+    30% {
+      translate: 0 -4px;
+      opacity: 1;
+    }
+  }
+}
+
+/* Typewriter caret for the hero tagline: blinks only while the word is
+   resting (the component swaps the class while typing). Decorative and
+   aria-hidden; reduced-motion users get no caret at all. */
+@media (prefers-reduced-motion: no-preference) {
+  .tw-caret {
+    animation: caret-blink 1.1s steps(1) infinite;
+  }
+  .tw-caret-solid {
+    animation: none !important;
+  }
+
+  @keyframes caret-blink {
+    0%,
+    55% {
+      opacity: 1;
+    }
+    56%,
+    100% {
+      opacity: 0.15;
+    }
+  }
+}
+
+/* Entrance for content inserted after load (messages, results, revealed
+   answers). Enter-only via @starting-style; honoured only for users who
+   have not asked their OS to reduce motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .ui-enter {
+    transition:
+      opacity var(--motion-enter) var(--ease-out),
+      translate var(--motion-enter) var(--ease-out);
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 10px;
+    }
+  }
+
+  .ui-enter-fast {
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      translate var(--motion-fast) var(--ease-out);
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 6px;
+    }
+  }
+}
+
+/* Native <dialog> open/close: fade + rise ~200ms (occasional surface,
+   standard budget). Display/overlay transitions are allowed only so the
+   close side actually animates; reduced-motion users get the instant
+   default behaviour of the element with no transition at all. */
+@media (prefers-reduced-motion: no-preference) {
+  .dlg {
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      translate var(--motion-fast) var(--ease-out),
+      display var(--motion-fast) allow-discrete,
+      overlay var(--motion-fast) allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 8px;
+    }
+  }
+  .dlg[open] {
+    opacity: 1;
+    translate: 0 0;
+  }
+  .dlg::backdrop {
+    background: rgb(15 23 42 / 0.45);
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      display var(--motion-fast) allow-discrete,
+      overlay var(--motion-fast) allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+/* Chat-history drawer (<lg): slides from its trigger edge on open.
+   Exit is instant — the drawer is a high-frequency navigation surface. */
+@media (prefers-reduced-motion: no-preference) {
+  .dw-panel {
+    transition:
+      translate var(--motion-fast) var(--ease-out),
+      opacity var(--motion-fast) var(--ease-out);
+
+    @starting-style {
+      translate: -16px 0;
+      opacity: 0;
+    }
+  }
+}
+
+/* Side panels (history / overview): the OUTER wrapper animates width only;
+   the INNER .side-content keeps its own fixed width throughout (no text
+   rewrapping mid-flight) and fades opacity. Drag-resize adds .no-motion
+   to cut both transitions — direct manipulation never lags the pointer. */
+.side-anim:not(.no-motion) {
+  transition: width var(--motion-panel) var(--ease-out);
+}
+.side-anim:not(.no-motion) > .side-content {
+  transition: opacity var(--motion-panel) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-anim,
+  .side-anim > .side-content {
+    transition: none;
+  }
+}

@@ -1,0 +1,40 @@
+CS210 — Operating Systems, Lecture 9 (March 14) — PROCESS SCHEDULING (cont.)
+[recording transcript, my notes are rough]
+
+prof recap: scheduler picks the next process from the ready queue. Context switch = save PCB of old process, load PCB of the new one. costs roughly 1-10 microseconds, "pure overhead, remember that for exam!"
+
+1. Scheduling criteria
+   - CPU utilization — keep the CPU busy (prof said ideally 40–90%)
+   - throughput = # processes finished per time unit
+   - turnaround time TAT = completion − arrival
+   - waiting time = TAT − burst … minus what exactly? ask TA!!! (important for the exercises)
+   - response time — interactive systems care most about this
+
+2. FIFO (FCFS)
+   non-preemptive, first come first served, simple queue.
+   PROBLEM: convoy effect — one long job blocks all the short ones behind it. prof example: printer spooling job at the front of the queue.
+   average waiting time can be terrible.
+
+3. SJF (Shortest Job First)
+   provably MINIMUM average waiting time for a given set of processes.
+   BUT: you need burst times in advance — impossible to know exactly in practice, so estimate with exponential averaging.
+   formula roughly: tau_{n+1} = alpha * t_n + (1 - alpha) * tau_n, alpha commonly ~0.5. recent behaviour matters more than old.
+   starvation: long jobs can wait forever while short ones keep arriving.
+   preemptive SJF = SRTF (shortest remaining time first).
+
+4. Priority scheduling
+   each process has a priority number, run highest priority first. NOTE: in our textbook a LOWER number means higher priority!! (I got this wrong in the quiz — lesson learned)
+   problem = starvation of low-priority processes again.
+   fix = AGING: gradually increase the priority of processes that have been waiting a long time.
+
+5. Round Robin
+   preemptive. time slice called the quantum q (typical values 10–100 ms; prof used 20 ms in the example)
+   circular ready queue: new arrivals appended at the tail.
+   if a job finishes its burst within q it leaves early; otherwise at the quantum it is preempted and sent to the back of the queue.
+   q too big → Round Robin degenerates into FIFO.
+   q too small → context-switch overhead starts to dominate; too much overhead does no useful work.
+   prof: "RR gives fair shares and good response time but worse average turnaround. KNOW THIS TRADEOFF."
+
+tangents: someone asked about hyperthreading — not in the syllabus this year. Also: the scheduler is invoked when the timer interrupt fires.
+
+exam notes: you'll be given arrival times + burst times, must draw the Gantt chart, then compute average waiting time and average turnaround. Practice SRTF exercises especially. TAT exercises too.
