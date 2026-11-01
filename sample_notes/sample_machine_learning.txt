@@ -1,0 +1,45 @@
+CS450 — Machine Learning, Lecture 12 — SUPERVISED LEARNING, LOSS LANDSCAPE & REGULARIZATION
+
+ scope today: we already defined linear regression + classification. Now polynom forms, regularization, bias-variance. ??  (slightly sarcastic: "classic quiz prep").
+
+1. hypothesis space & degrees of freedom
+   - Linear in parameters: f(x) = w0 + w1 x + ... + wd x^d (polynomial order d). With d large this overfits.
+   - More generally fθ(x) = Σ_j θ_j φ_j(x) — linear in θ but non-linear in x after feature map.
+
+2. Cost function (squared error) on training set:
+   J(θ) = (1/2m) Σ_{i=1}^m (hθ(x^i) - y^i)^2  (the 1/2 cancels after derivative).
+   - convex in θ → any local min is global (for linear regression). With θ in R^n+n.
+   derivative w.r.t θ_j:
+       ∂J = (1/m) Σ (hθ(x^i)-y^i) x_j^(i).
+
+3. Gradient descent vectorized:
+   θ := θ - α ∇J, step. Normal equation θ = (X^T X)^(-1) X^T y. When X^T X singular (collinear/incomplete rank), pseudo inverse via SVD.
+   α scaling: choose 1e-3 common start.
+   visual intuition: one outlier "yknow" can pull best/worst drastically.
+
+4. Overfitting mechanics
+   - bias vs variance: J_train low but J_cv high = overfit? train task always low after enough params (variance); bias (underfitting) if too simple.
+   - error decomposition: E[(ŷ-y)^2] = bias² + variance + (irreducible).
+   - practical cheat: solve with many polynomial orders, evaluate on CV; pick before test.
+
+5. regularization, L2 ridge:
+   cost J = original cost + λ/(2m) Σ θ_j^2  (j=1..n; θ0 omitted penalization norm-consistent).
+   - without it, collinear/integration effect causes weights to amplify.
+   gradient: θ_j := θ_j(1 - α λ/m) - α (1/m)*deriv (weight shrinkage)
+   - normal-equation becomes θ = ((X^T X) + λI)^-1 X^T y.
+6. L1 (Lasso): cost with λ/m Σ |θ_j| — gives sparse weights, occasionally feature selection (just zeros). Different efficiency properties. In practice scikit-learn ElasticNet subsumes.
+
+7. Feature scaling: μ and σ; polynomial degree expansion (explicit) doubles complexity. Normalization needed for fast optimization.
+
+8. Diagnostics checklist
+   - plot learning curves: J_train and J_cv vs m training size (when cv doesn't improve with training more = high bias; cv improves WLL while train error rises = overfit variance)
+   - baseline comparison: human-level performance (0.1 %?), Bayes error bounds.
+   - error analysis: false positives on stop sign images, mislabeled segmentation.
+   In workshop: identify "most harmful" baleful split.
+   - Experiments to try: regularization λ, feature map degree, training data amount (100k vs 1k), precomputed features, online learning.
+   - closure: "AI" isn't magic — the error signal is just objective minimization. tuning is measurement & disciplined iteration.
+
+Extra notes:
+- professor cheat-code: "regularization can add a bit of bias to substantially knock down variance — good enough, if enough data/regularizer are present"
+
+possible exam Qs: compute minimization via normal equation + calculate using dummy data. don't overtrain.

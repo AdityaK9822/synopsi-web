@@ -1,0 +1,25 @@
+PHYS327 — Unitary Quantum Mechanics, Seminar 4 — WAVE FUNCTIONS, MEASUREMENT, SCHRODINGER
+
+1. physical states described by wavefunctions ψ(x,t) (complex). Born rule: probability density p(x,t)=|ψ|². Normalization: ∫ |ψ|² dx = 1 (over all space).
+
+2. superposition & Hilbert space: states are vectors in a complex vector space with inner product. |ψ⟩ notation. A linear state basis: {|n⟩} yielding expansion ψ = Σ c_n |φ_n⟩.
+
+3. operator correspondence: observable A represented as Hermitian operator (A= A†). Measurement outcome is one of eigenvalues a_n (where they are real), probability p_n = |⟨φ_n|ψ⟩|² (if φ_n normalized). Expectation value = Σ p_n a_n = ⟨ψ|Aψ⟩. Variance = ⟨A²⟩ - ⟨A⟩².
+
+4. the measurement postulate: after measuring A with result a_n, state collapses to |n⟩ (projective measurement). Alternate interpretations (partial/mixed states, non-projective POVMs, etc.) omitted from syllabus this semester.
+
+5. the free-particle Schrödinger equation: iħ ∂ψ/∂t = -(ħ²/2m) Δψ + Vψ. For constant V = 0, solutions are plane waves ψ = A e^{i(kx - ωt)}, ω = E/ħ. Velocity group and phase velocities differ.
+
+6. Infinite square well (box) [0,a]: potential 0 inside, ∞ outside.
+   - boundary ψ(0)=ψ(a)=0 ⇒ k a = nπ ⇒ ψ_n(x) = sqrt(2/a) sin(nπ x/a).
+   - eigenenergy E_n = n² π² ħ² / (2 m a²).
+   - n=1 ground (coordinated wave because of fit; no node except ends).
+   - General time evolution ~ superposition with phases e^{-iE_nt/ħ}.
+7. Fourier transform relation: ψ(k) = (2πħ)^-½ ∫ e^{-ikx} ψ(x) dx; discrete box states ↔ harmonic. Useful to find k-probability from a spacial.
+
+8. commutators and uncertainty: [x,p]=iħ. For ANY pair: Δx Δp ≥ ħ/2 (Heisenberg). Also variance of ξ² (xyz fourth moment due to).
+9. de-Broglie relations: p = h/λ, E = hf. Macroscopic boxes have too sharp transitions etc.
+
+10. particle in a weak-field/ external perturbation theory (not in scope for midterm) applies only if V≡0 small causing level splitting.
+
+Terminology: eigenstate, projective completion, normalisation, eval

@@ -1,0 +1,23 @@
+BIO204 — Molecular Biology (Oct 3) — PHOTOSYNTHESIS, LAB POST-MORTEM & EXAM DRILL
+
+ recap: light reactions happen in thylakoid membranes, need both Photosystems (PSII absorbs 680 nm, PSI 700 nm) and an electron transport chain.
+ - PSII splits water (photolysis): 2 H2O → 4 H+ + 4 e- + O2. Water is ALWAYS the donor, THIS is where O2 comes from (not CO2).
+ - electrons ride: PSII → plastoquinone PQ → cytochrome b6f (pumps H+ into the lumen) → plastocyanin PC → PSI (+ light) → ferredoxin Fd → NADP+ reductase → NADPH.
+ - PSI "re-energises" the electrons so they can reduce NADP+. So PSII extracts them, PSI re-boosts them.
+
+ proton gradient → ATP via ATP synthase (chemiosmosis, like mitochondria but in the chloroplast thylakoid lumen).
+
+ oxy-evolution complex: contains the Mn4Ca cluster — tightens water splitting kinetics; "kok cycle" (S states S0→S4) releases one O2 every four flashes. Flash illumination experiment (Kok) shows this.
+
+ Calvin cycle (stroma) fixes CO2 via Rubisco: 3 turns of Calvin fix 3 CO2 → 1 G3P (net hexose). Phases: (1) carbon fixation: RuBP + CO2 → 3-PGA; (2) reduction: 3-PGA + ATP (6 total/three CO2) → G3P + NADPH (6) — ATP splits to ADP; (3) regeneration: 5 G3P + 3 ATP → 3 RuBP.
+ - total per hexose (6 C): 18 ATP + 12 NADPH. Memorize.
+
+ Stomata tradeoff: opening ≡ CO2 in + water out. On hot/dry days they close, O2 rises in leaf → photorespiration via rubisco oxygenase activity (glycolate pathway). Rubisco fixes 1O2 more than 25% of the time.
+
+ C4 plants (maize, sorghum): PEP carboxylase fixes CO2 in mesophyll → 4-carbon oxaloacetate → malate → decarboxylate in bundle-sheath (spatial separation of initial fixation & rubisco), reducing photorespiration under high T. Kranz anatomy: bundle sheath has high Rubisco. Compensation point fixed.
+ CAM plants (cacti, pineapple): temporal separation — stomata open at night, CO2 into malate in vacuole; daytime close, malate released, calvin runs. Extreme water conservation.
+
+ lab exercise: measuring leaf absorbance at 430, 645, 663 nm; Chla, Chlb, carotenoids. Symptoms of chlorosis vs acyanotic.
+ light compensation point: net photosynthesis zero (respiration equals gross). Becomes critical in dense canopy shading.
+ exam drill: explain WHY O2 is indicated as "byproduct" but not wasted; why photorespiration is energetically costly (releases fixed carbon, wastes NADPH/ATP); why Δ G for co2 fix ≈ +478 kJ/mol (endergonic) — ATP/NADPH necessary.
+ Prof's hint: "no ATP → no G3P; rubisco is the bottleneck, NOT electron transport, in indian monsoon high temps"

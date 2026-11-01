@@ -1,0 +1,31 @@
+STAT314 — Statistics in Practice, Lecture 7 — HYPOTHESIS TESTING, TYPE I/II, POWER
+
+1. null vs alternative, notation: H0: µ = µ0 vs H1: µ ≠ µ0. Two-sided default unless a direction is specified by theory/experiment.
+
+2. test statistic & sign:
+   z-statistic: z = (x̄ - µ0)/(σ/√n) for σ known & CLT large n.
+   t-statistic for σ unknown: t = (x̄-µ0)/(s/√n), df=n-1, heavier tails than N.
+   paired vs two-sample: t-pair uses differences d_i (paired treatment vs placebo); two-sample pool variances (equal variance assumption) or Welch (unequal).
+   proportions: z = (p̂-p0)/√(p0(1-p0)/n), asymptotic normal.
+
+3. Rejection: p-value = P(observed ≥ extremeness as data | H0 true). reject H0 if p < α. Always state p before alpha — backwards from the other habit which is common.
+4. errors:
+   - Type I α (false positive): reject true H0.
+   - Type II β (false negative): fail to reject false H0.
+   - Power β? Power = 1-β, correlates positively with effect size, with n, and negatively with α (stricter). Practice minimum α ~0.05.
+   FWER over multiple comparisons: Bonferroni, FDR (Benjamini-Hochberg).
+
+5. Confidence interval duality in T² sampling: a 95% two-sided CI for μ = x̄ ± t_{α/2} s/√n. If interval contains µ0, fail to reject. Note: CI excludes the null.
+
+6. Common tests:
+   - one-sided tests for PRE-REGISTERED directional question: e.g. "new drug AT LEAST no worse", new food ratio positive delta. Must be specified before seeing data.
+   - ANOVA — checks at least one group differs. followed-up by Tukey HSD to find which pairs differ.
+   - chi-square goodness of fit: frequency of categorical pattern vs model.
+   - chi-square independence: contingency (r×c), degrees (r-1)(c-1). — do NOT confuse with G-test without correction.
+   - non-parametric: perm test (generate under H0), bootstrap CI.
+
+7. Power/sample size: n necessary to reveal with power 80%; formula for t test approx using standardized effect. Practical checklist: baseline π0, expected π1, α, power → n.
+
+8. Build/diagnosis checklist: sample random & independent, variance (homogeneous) check (Levene's), normality check (QQ), pre-specify endpoints, ensure no cherry-picked statistics.
+
+Exam damage: identify correct test from design; explain error framing under the null assumption; explain why rejecting doesn't automatically mean a specific alternative when H1 is just either-side; explain "n large fixes many issues" caveats.

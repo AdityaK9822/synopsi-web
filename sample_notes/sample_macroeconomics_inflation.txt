@@ -1,0 +1,25 @@
+ECON101 — Principles of Macroeconomics, Lecture 8 — INFLATION & MONEY
+
+1. Definition: inflation is a sustained increase in the overall price level; deflation is a negative rate; disinflation is still positive but slower. It is not simply "a higher price" — it has to be broad and ongoing.
+
+2. How measured: CPI on a consumer basket. Laspeyres index = (Σ P1Q0)/(Σ P0Q0) × 100. The BLS updates the basket occasionally; substitution, quality and new goods are all problems. The Fed uses a chain-weighted PCE (core PCE excluding food & energy), target typically 2% in the long run.
+
+3. Types of inflation:
+   - demand-pull: aggregate demand rises (fully employed economy) but supply does not; quantity demanded > Qs (Keynesian sticky wages).
+   - cost-push: an input price shock (oil, sticky wages); quantity falls as firms cut back.
+   - built-in / "inflation expectations": wage-price spiral if π^e rises; can self-sustain via indexed contracts.
+   - hyper-inflation: severe form triggered by excessive fiscal deficit monetization.
+
+4. monetary theory: Fisher equation (1+nominal) = (1+real)(1+inflation); or MV = PY implies that, with velocity smooth and Y at potential, an increase in M raises P — "too much money chasing too few goods."
+
+5. external link via PPP: long-run relative PPP says the inflation differential governs nominal exchange rates. Domestic inflation affects external competitiveness; imported goods costs rise back into CPI (imported cost-push).
+
+6. timing lags: policy lag + institutional lag; transmission usually 6–18 months. Financial lags mean rate hikes overshoot and undershoot output.
+
+7. AD / SRAS / LRAS impacts:
+   - by SRAS shocks (temporary cost growth), NGDP grows but output falls
+   - long run, expectations adapt and unemployment returns to natural rate — Phillips curve vs money neutrality
+
+8. Policy tradeoff practice: central bank raise nominal interest rates if expected inflation breaches target. "cool so tax receipted — ex-postism?"
+
+Exam damage: quantify via CPI formulas, draw AD SRAS shifts, explain why a wage-cost shock can land in stags latter stage; connect to inflation surprises & real wage effects.
