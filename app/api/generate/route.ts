@@ -14,6 +14,16 @@ import {
   saveStudyPack,
   UnsupportedFileError,
 } from "@/lib/pipeline";
+import { AdminNotConfiguredError } from "@/lib/server/firebase-admin";
+import { getSessionUser } from "@/lib/server/auth";
+import {
+  QuotaExceededError,
+  assertWithinQuota,
+  consumeGeneration,
+  limitsForPlan,
+} from "@/lib/server/usage";
+import { getUserPlan } from "@/lib/server/usage";
+import type { Plan } from "@/lib/plans";
 
 const clampCount = (value: unknown): number => {
   const n = parseInt(String(value ?? "10"), 10);
@@ -91,6 +101,45 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.OLLAMA_API_KEY ?? "";
     const model = process.env.OLLAMA_MODEL || DEFAULT_MODEL;
 
+    /* Plan gate: enforced only when the admin SDK is configured (always on
+       Vercel/Render). Soft-fails to the old ungated behaviour in fresh local
+       dev, where FIREBASE_SERVICE_ACCOUNT may not be set yet. */
+    let userPlan: Plan | null = null;
+    try {
+      const user = await getSessionUser(req);
+      if (user) {
+        userPlan = await getUserPlan(user.uid);
+        const limits = limitsForPlan(userPlan);
+        await assertWithinQuota(user.uid, userPlan);
+        if (research && !limits.research) {
+          return NextResponse.json(
+            { error: "Fact-check (research mode) is part of the premium plan — it unlocks soon.", code: "premium_only" }, { status: 403 });
+        }
+        if (questionsEnabled && questionCount > limits.maxQuestions) {
+          return NextResponse.json(
+            { error: `This plan caps revision questions at ${limits.maxQuestions}. Lower the count or switch plans.`, code: "plan_cap" },
+            { status: 403 },
+          );
+        }
+      }
+      // else: signed out or admin-unconfigured — no gate (documented dev path).
+    } catch (exc) {
+      if (exc instanceof QuotaExceededError) {
+        return NextResponse.json(
+          {
+            error: `You've used all ${exc.limit} free generations for ${exc.period} — premium unlocks 300/month and lands soon.`,
+            code: "quota_exceeded",
+          },
+          { status: 402 },
+        );
+      }
+      if (exc instanceof AdminNotConfiguredError) {
+        console.warn("[generate] admin not configured — running ungated");
+      } else {
+        throw exc;
+      }
+    }
+
     const result = await generateStudyPack(notesText, questionCount, apiKey, {
       model,
       questionsEnabled,
@@ -109,6 +158,16 @@ export async function POST(req: NextRequest) {
       savedPath = await saveStudyPack(result.raw, sourceName);
     } catch {
       // auto-save is best-effort; the UI result still returns below
+    }
+
+    // Count the generation — success-path only, so failed runs stay free.
+    if (userPlan) {
+      try {
+        const who = await getSessionUser(req);
+        if (who) await consumeGeneration(who.uid);
+      } catch (exc) {
+        console.warn("[generate] usage accounting failed:", exc);
+      }
     }
 
     return NextResponse.json({

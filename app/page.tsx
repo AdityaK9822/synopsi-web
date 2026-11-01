@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clipboard,
   FileText,
@@ -15,12 +15,14 @@ import ResultCard from "@/components/chat/ResultCard";
 import TypingDots from "@/components/chat/TypingDots";
 import TypewriterTagline from "@/components/chat/TypewriterTagline";
 import AccountDialog from "@/components/shell/AccountDialog";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 import HelpDialog from "@/components/shell/HelpDialog";
 import SettingsDialog from "@/components/shell/SettingsDialog";
 import IconRail from "@/components/shell/IconRail";
 import HistoryPanel from "@/components/shell/HistoryPanel";
 import OverviewRail from "@/components/shell/OverviewRail";
 import TopBar from "@/components/shell/TopBar";
+import Splitter from "@/components/shell/Splitter";
 import { Logomark } from "@/components/brand/Logo";
 import {
   deriveTitle,
@@ -32,7 +34,7 @@ import {
   type SnapshotMsg,
 } from "@/lib/history";
 import type { StudyPack } from "@/lib/types";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ types */
 
@@ -125,6 +127,73 @@ const INPUT_KINDS = [
   { icon: List, label: "Bullet points" },
 ] as const;
 
+/* Collapsible, resizable panel prefs. Defaults are SSR-safe (the first
+   client render must match the server); persisted values apply after mount. */
+const UI_KEY = "synopsi-ui-v1";
+const HISTORY_MIN = 240;
+const HISTORY_MAX = 440;
+const HISTORY_DEF = 320;
+const OVERVIEW_MIN = 240;
+const OVERVIEW_MAX = 400;
+const OVERVIEW_DEF = 288;
+
+interface UiPrefs {
+  historyVisible: boolean;
+  historyWidth: number;
+  overviewVisible: boolean;
+  overviewWidth: number;
+}
+
+const DEFAULT_UI: UiPrefs = {
+  historyVisible: true,
+  historyWidth: HISTORY_DEF,
+  overviewVisible: true,
+  overviewWidth: OVERVIEW_DEF,
+};
+
+/** Read + validate stored panel prefs; anything malformed (user-edited
+    files, partial writes, old versions) falls back to defaults. */
+function loadUiPrefs(): UiPrefs {
+  try {
+    const raw = localStorage.getItem(UI_KEY);
+    if (!raw) return DEFAULT_UI;
+    const p = JSON.parse(raw) as Partial<UiPrefs> | null;
+    const width = (v: unknown, min: number, max: number, def: number) =>
+      typeof v === "number" && Number.isFinite(v)
+        ? Math.min(max, Math.max(min, Math.round(v)))
+        : def;
+    return {
+      historyVisible:
+        typeof p?.historyVisible === "boolean" ? p.historyVisible : true,
+      historyWidth: width(p?.historyWidth, HISTORY_MIN, HISTORY_MAX, HISTORY_DEF),
+      overviewVisible:
+        typeof p?.overviewVisible === "boolean" ? p.overviewVisible : true,
+      overviewWidth: width(p?.overviewWidth, OVERVIEW_MIN, OVERVIEW_MAX, OVERVIEW_DEF),
+    };
+  } catch {
+    return DEFAULT_UI;
+  }
+}
+
+/** Busy flag-free narrow write; private mode simply does not persist. */
+function storeUiPrefs(next: UiPrefs) {
+  try {
+    localStorage.setItem(UI_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode: prefs simply will not persist */
+  }
+}
+
+/** When a panel hides while focus is inside it, hand focus to the panel's
+    disclosure toggle (stable ids kept on the TopBar buttons + asides). */
+function moveFocusToToggle(panelId: string, toggleId: string) {
+  const active = document.activeElement;
+  const panel = document.getElementById(panelId);
+  if (panel && active instanceof Node && panel.contains(active)) {
+    document.getElementById(toggleId)?.focus();
+  }
+}
+
 /** ThreadMessage[] → localStorage-safe snapshot (pending turns dropped,
  *  retry payloads dropped). */
 function currentSnapshot(msgs: ThreadMessage[]): SnapshotMsg[] {
@@ -163,6 +232,14 @@ export default function Page() {
   const [isLoading, setIsLoading] = useState(false);
   const [dark, setDark] = useState(false);
 
+  // Collapsible + resizable panel prefs (synopsi-ui-v1 above). uiRef is the
+  // live copy drag handlers and the ⌘B shortcut read without resubscribing.
+  const [ui, setUi] = useState<UiPrefs>(DEFAULT_UI);
+  const uiRef = useRef(ui);
+  const [draggingPanel, setDraggingPanel] = useState<"history" | "overview" | null>(
+    null,
+  );
+
   // Chat-history persistence (localStorage; see lib/history.ts).
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -181,6 +258,10 @@ export default function Page() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  /** Bumped only when the thread content changes identity (open a session,
+      new chat, delete-active, clear history) so the hero↔thread swap bridges
+      once; never bumped on sends. */
+  const [shellEpoch, setShellEpoch] = useState(0);
 
   const endRef = useRef<HTMLLIElement | null>(null);
   const nextId = useRef(1);
@@ -191,6 +272,11 @@ export default function Page() {
     const raf = requestAnimationFrame(() => {
       setDark(document.documentElement.classList.contains("dark"));
       setSessions(loadSessions());
+      // Persisted panel prefs apply here: still deferred (no setState in the
+      // effect body), and only after the SSR-safe first paint.
+      const prefs = loadUiPrefs();
+      uiRef.current = prefs;
+      setUi(prefs);
     });
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -198,6 +284,10 @@ export default function Page() {
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  useEffect(() => {
+    uiRef.current = ui;
+  }, [ui]);
 
   function toggleDark() {
     const root = document.documentElement;
@@ -213,6 +303,44 @@ export default function Page() {
     setDark(next);
     requestAnimationFrame(() => root.classList.remove("no-theme-transition"));
   }
+
+  /* ------------------------------------------------ panel show/width */
+  /* The outer <aside> shells animate width (see .side-anim in globals.css)
+     and go inert while hidden; the inner .side-content keeps its fixed
+     width so text never rewraps mid-flight. Toggles persist immediately;
+     drag sizes persist on commit. All writers share uiRef as the source
+     of truth, so a keyboard binding installed once reads fresh values. */
+
+  const applyUi = useCallback((next: UiPrefs) => {
+    uiRef.current = next;
+    setUi(next);
+  }, []);
+
+  const setPanelPrefs = useCallback(
+    (patch: Partial<UiPrefs>) => {
+      const next = { ...uiRef.current, ...patch };
+      uiRef.current = next;
+      setUi(next);
+      storeUiPrefs(next);
+    },
+    [],
+  );
+
+  const toggleHistoryPanel = useCallback(() => {
+    const nextVisible = !uiRef.current.historyVisible;
+    setPanelPrefs({ historyVisible: nextVisible });
+    if (!nextVisible) {
+      moveFocusToToggle("synopsi-history-panel", "synopsi-history-toggle");
+    }
+  }, [setPanelPrefs]);
+
+  const toggleOverviewPanel = useCallback(() => {
+    const nextVisible = !uiRef.current.overviewVisible;
+    setPanelPrefs({ overviewVisible: nextVisible });
+    if (!nextVisible) {
+      moveFocusToToggle("synopsi-overview-panel", "synopsi-overview-toggle");
+    }
+  }, [setPanelPrefs]);
 
   /* Attachments and pasted text now COEXIST: typing never clears files and
      attaching never clears text — they are combined on send. */
@@ -264,6 +392,21 @@ export default function Page() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
+
+  // ⌘/Ctrl+B toggles the history panel — lg+ only, where the panel exists;
+  // below that history lives in the drawer. The binding installs once and
+  // reads fresh state via uiRef inside the (stable) toggle.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
+        if (!window.matchMedia("(min-width: 1024px)").matches) return;
+        e.preventDefault();
+        toggleHistoryPanel();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleHistoryPanel]);
 
   /* ------------------------------------------------- history persistence */
 
@@ -344,6 +487,7 @@ export default function Page() {
     const s = sessionsRef.current.find((x) => x.id === id);
     if (!s) return;
     setDrawerOpen(false);
+    setShellEpoch((n) => n + 1); // hero↔thread bridge for the restored thread
     const msgs: ThreadMessage[] = s.messages.flatMap((sm): ThreadMessage[] => {
       if (sm.kind === "user") {
         return [
@@ -391,6 +535,7 @@ export default function Page() {
     pendingTitleRef.current = null;
     chatNamedRef.current = false;
     setDrawerOpen(false);
+    setShellEpoch((n) => n + 1);
     setLocalError(null);
     setMessages([]);
     setActiveId(null);
@@ -406,6 +551,7 @@ export default function Page() {
       dirty.current = false;
       pendingTitleRef.current = null;
       chatNamedRef.current = false;
+      setShellEpoch((n) => n + 1); // thread → hero bridge
       setMessages([]);
       setActiveId(null);
       setSessionCreatedAt(null);
@@ -419,6 +565,7 @@ export default function Page() {
     dirty.current = false;
     pendingTitleRef.current = null;
     chatNamedRef.current = false;
+    setShellEpoch((n) => n + 1); // thread → hero bridge
     setMessages([]);
     setActiveId(null);
     setSessionCreatedAt(null);
@@ -586,6 +733,7 @@ export default function Page() {
   }, [messages]);
 
   return (
+    <AuthProvider>
     <div className="flex h-dvh overflow-hidden">
       <IconRail
         onNewChat={newChat}
@@ -851,5 +999,6 @@ export default function Page() {
       />
       <AccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} />
     </div>
+    </AuthProvider>
   );
 }
