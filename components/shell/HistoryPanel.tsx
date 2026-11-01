@@ -6,7 +6,6 @@ import { Search, SquarePen, X, Lightbulb } from "lucide-react";
 import { relativeTime } from "@/lib/utils";
 import type { SessionSnapshot } from "@/lib/history";
 import { cn } from "@/lib/utils";
-import { Logomark } from "@/components/brand/Logo";
 
 const TIPS_KEY = "synopsi-tips-dismissed";
 
@@ -78,10 +77,7 @@ export default function HistoryPanel({
     <div className="flex h-full w-full flex-col bg-panel">
       {/* header: brand + new chat (the design's edit affordance) */}
       <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
-        <span className="flex items-center gap-2 truncate">
-          <Logomark tone="rose" className="size-7" />
-          <span className="text-xl font-bold tracking-tight">Synopsi</span>
-        </span>
+        <span className="truncate text-xl font-bold tracking-tight">Synopsi</span>
         <button
           type="button"
           onClick={onNew}
