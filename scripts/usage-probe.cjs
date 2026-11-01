@@ -7,8 +7,8 @@
  *   node scripts/usage-probe.cjs usage <uid> reset                # reset this month
  *   node scripts/usage-probe.cjs user <uid> delete                # farewell
  */
+/* eslint-disable @typescript-eslint/no-require-imports -- CJS admin script, run with plain node */
 const fs = require("fs");
-const path = require("path");
 
 const FROM_ENV = /^FIREBASE_SERVICE_ACCOUNT=(.*)$/m.exec(fs.readFileSync(".env.local", "utf8"))?.[1] ?? "";
 const serviceAccount = JSON.parse(FROM_ENV.trim());
