@@ -29,6 +29,10 @@ export type TierLimits = {
   research: boolean;
 };
 
+/** Accounts that always get full premium access (server-side, validated).
+ *  Keep this list short and review every addition. */
+export const ADMIN_EMAILS = ["asukathreads@gmail.com"];
+
 export const TIER_LIMITS: Record<Tier, TierLimits> = {
   guest: {
     generationsPerMonth: 3,
@@ -37,14 +41,15 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     research: false,
   },
   free: {
-    generationsPerMonth: 3,
-    downloadsPerMonth: 5,
+    /* 5 generations + 3 downloads per 5-hour rolling window */
+    generationsPerMonth: 5,
+    downloadsPerMonth: 3,
     maxQuestions: 10,
     research: false,
   },
   premium: {
-    generationsPerMonth: 300,
-    downloadsPerMonth: null, // unlimited
+    generationsPerMonth: 100,
+    downloadsPerMonth: null,
     maxQuestions: 20,
     research: true,
   },
@@ -53,9 +58,24 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
 /** Firestore user doc field that decides the tier (Google sign-ups only). */
 export const PREMIUM_PLAN_FIELD: { plan: Tier } = { plan: "premium" };
 
-/** Billing-period key: UTC month, e.g. "2026-11". */
+/** Billing-period key: rolling 5-hour UTC bucket, e.g. "2026-11-01-2". */
 export function currentPeriod(date = new Date()): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(date.getUTCDate()).padStart(2, "0")}-${Math.floor(
+    date.getUTCHours() / 5,
+  )}`;
+}
+
+/** End of the current 5-hour UTC billing bucket (when the allowance resets). */
+export function periodEnd(date = new Date()): Date {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const d = date.getUTCDate();
+  const h = Math.floor(date.getUTCHours() / 5) * 5 + 5;
+  // Date.UTC normalises overflow into the next day/month/year.
+  return new Date(Date.UTC(y, m, d, h, 0, 0, 0));
 }
 
 /** Legacy name — free/premium limits by plan value (Google users only). */

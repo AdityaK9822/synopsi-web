@@ -11,15 +11,24 @@ import {
 } from "lucide-react";
 
 import { relativeTime } from "@/lib/utils";
+import { useAuth } from "@/components/auth/AuthProvider";
 
-const TOP_BTN =
-  "grid size-10 shrink-0 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
+/* The shared button innards WITHOUT display or size utilities, so callers
+   can compose their own breakpoint display rules — two unconditional display
+   utilities on one element is an ambiguous cascade (bare `grid` vs `hidden`). */
+const TOP_BTN_BASE =
+  "shrink-0 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
+
+const TOP_BTN = `grid size-10 ${TOP_BTN_BASE}`;
 
 /**
- * Thread top bar: guest identity (placeholder for future auth), the
+ * Thread top bar: it spans the full width to the RIGHT of the history
+ * sidebar, running over the chat and the overview rail alike — both sit
+ * on the row beneath it, so the bar is bounded once (left edges) and
+ * never cut again. Identity (real user via the auth provider), the
  * breadcrumb of the active chat, then the lightweight utilities on the
- * right. The menu button + settings gear appear only where the rails
- * they replace are hidden (narrow viewports).
+ * right. Panel controls live IN the panels (they dock themselves); help
+ * and settings appear here only where the icon rail is hidden (<md).
  */
 export default function TopBar({
   title,
@@ -41,6 +50,11 @@ export default function TopBar({
   onOpenHelp: () => void;
   onOpenSettings: () => void;
 }) {
+  const { user, isGuest, overview, signInWithGoogle } = useAuth();
+  const displayName =
+    (!isGuest && (overview?.user?.name || user?.displayName || user?.email)) ||
+    (isGuest ? "Guest user" : "Account");
+  const initial = displayName.charAt(0).toUpperCase() || "G";
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-paper/90 px-3 backdrop-blur sm:px-4">
       {/* menu (mobile/narrow: the drawer trigger) */}
@@ -63,10 +77,10 @@ export default function TopBar({
           aria-hidden="true"
           className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-white"
         >
-          G
+          {initial}
         </span>
         <span className="hidden text-sm font-bold tracking-tight text-ink sm:block">
-          Guest user
+          {displayName}
         </span>
       </button>
 
@@ -91,11 +105,12 @@ export default function TopBar({
             <span>{relativeTime(createdAt)}</span>
           </p>
         )}
+        {/* help twin for narrow viewports (the icon rail is hidden <md) */}
         <button
           type="button"
           onClick={onOpenHelp}
           aria-label="How it works"
-          className={TOP_BTN}
+          className={`${TOP_BTN} md:hidden`}
         >
           <CircleHelp className="size-5" strokeWidth={2} aria-hidden="true" />
         </button>
@@ -121,13 +136,23 @@ export default function TopBar({
             <Moon className="size-5" strokeWidth={2} aria-hidden="true" />
           )}
         </button>
-        <button
-          type="button"
-          onClick={onOpenAccount}
-          className="ml-1 hidden h-9 items-center rounded-full bg-primary px-4 text-sm font-bold text-white transition-[background-color] hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none md:inline-flex"
-        >
-          Sign in
-        </button>
+        {isGuest ? (
+          <button
+            type="button"
+            onClick={() => void signInWithGoogle()}
+            className="ml-1 hidden h-9 items-center rounded-full bg-primary px-4 text-sm font-bold text-white transition-[background-color] hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none md:inline-flex"
+          >
+            Sign in
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenAccount}
+            className="ml-1 hidden h-9 items-center rounded-full border border-line bg-card px-4 text-sm font-bold text-ink transition-[border-color,background-color] hover:border-line-strong hover:bg-line/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none md:inline-flex"
+          >
+            Account
+          </button>
+        )}
       </div>
     </header>
   );

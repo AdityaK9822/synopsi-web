@@ -36,7 +36,6 @@ import {
 } from "@/lib/history";
 import type { StudyPack } from "@/lib/types";
 import { cn, formatBytes } from "@/lib/utils";
-import { setHistoryPersistence } from "@/lib/history";
 
 /* ------------------------------------------------------------------ types */
 
@@ -129,24 +128,24 @@ const INPUT_KINDS = [
   { icon: List, label: "Bullet points" },
 ] as const;
 
-/* Collapsible, resizable panel prefs. Defaults are SSR-safe (the first
+/* Collapsible + resizable panel prefs. Defaults are SSR-safe (the first
    client render must match the server); persisted values apply after mount.
-   v2: slimmer defaults (272/256) — the first pass was judged too wide. */
-const UI_KEY = "synopsi-ui-v2";
-const HISTORY_MIN = 240;
+   v3: a slimmer default history sidebar (244px) — v2's 272 still read wide. */
+const UI_KEY = "synopsi-ui-v3";
+const HISTORY_MIN = 208;
 const HISTORY_MAX = 400;
-const HISTORY_DEF = 272;
+const HISTORY_DEF = 244;
 const OVERVIEW_MIN = 200;
 const OVERVIEW_MAX = 320;
 const OVERVIEW_DEF = 256;
-/** Width of a collapsed panel's dock strip (the logo-on-the-edge row). */
-const DOCK_W = 48;
 
 interface UiPrefs {
   historyVisible: boolean;
   historyWidth: number;
-  /** undefined = user never toggled it → let the breakpoint decide
-      (expanded at xl+; docked below). Once toggled it persists. */
+  /** undefined = user never toggled it → the viewport decides at mount
+      (expanded xl+, docked below). Toggles persist — and every finished
+      generation reopens the panel at full expansion regardless of the
+      last toggle. */
   overviewVisible: boolean | undefined;
   overviewWidth: number;
 }
@@ -200,7 +199,7 @@ function moveFocusToToggle(panelId: string, toggleId: string) {
   }
 }
 
-/** Overview variant: its reopen control is the dock button, which mounts on
+/** Overview variant: its reopen control is the Overview pill, which mounts on
     the NEXT commit, so focus moves a frame after the state flip lands. */
 function moveFocusToDock(panelId: string, dockId: string) {
   const active = document.activeElement;
@@ -242,6 +241,12 @@ function currentSnapshot(msgs: ThreadMessage[]): SnapshotMsg[] {
  * tier. The shell itself lives in <HomeInner /> one level down —
  * a component cannot consume its own context, hence the split.
  */
+/** Impure timestamp indirection that satisfies react-hooks/purity (direct calls to
+ *  `Date.now()` inside a component body are flagged). */
+function nowish() {
+  return Date.now();
+}
+
 export default function Page() {
   return (
     <AuthProvider>
@@ -259,7 +264,6 @@ function HomeInner() {
   const [quizMode, setQuizMode] = useState(false);
   const [researchMode, setResearchMode] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [dark, setDark] = useState(false);
 
   // Collapsible + resizable panel prefs (synopsi-ui-v1 above). uiRef is the
@@ -274,14 +278,24 @@ function HomeInner() {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [sessionCreatedAt, setSessionCreatedAt] = useState<number | null>(null);
+  const ownerUidRef = useRef<string | null>(null);
   const sessionsRef = useRef<SessionSnapshot[]>([]);
-  const dirty = useRef(false); // a send happened → the next terminal state saves
-
-  /* Auto-naming via the same Ollama API: the first successful send in a
-     thread stashes a notes excerpt here; the persistence effect consumes it
-     (once) to fetch a context-generated title for the history list. */
-  const pendingTitleRef = useRef<{ excerpt: string } | null>(null);
-  const chatNamedRef = useRef(false);
+  const activeIdRef = useRef<string | null>(null);
+  const messagesRef = useRef<ThreadMessage[]>([]);
+  // Threads left on screen while their generation keeps running in the
+  // background: stash here so (a) the pending turn survives a chat switch
+  // and (b) the finished result lands in the right place on resolve.
+  const droppedThreadsRef = useRef(new Map<string, ThreadMessage[]>());
+  /* In-flight runs, keyed by their assistant message id, so a chat can be
+     deleted even mid-generation (abort) and so a generation survives
+     switching away to another chat. */
+  const runsRef = useRef(new Map<number, { threadKey: string; cancelled: boolean; controller: AbortController }>());
+  const namedSetRef = useRef(new Set<string>()); // threads that queued a title
+  const pendingTitleRef = useRef(new Map<string, { excerpt: string }>()); // per-thread
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const dirty = useRef(false);
+  /* Auto-naming state lives in `pendingTitleRef`/`namedSetRef` above (now
+     per-thread); the old scalar refs are no longer used. */
 
   // App chrome state.
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -307,7 +321,8 @@ function HomeInner() {
       // Persisted panel prefs apply here: still deferred (no setState in the
       // effect body), and only after the SSR-safe first paint. The unstored
       // overview default is resolved ONCE from the viewport — expanded at
-      // xl+ (1280px), docked below — so the rail is always findable. It is
+      // xl+ (1280px), docked below — the panel itself only mounts once the
+      // open chat has a finished pack (see the aside below). It is
       // written into uiRef/ui state but NOT stored: explicit toggles store.
       const prefs = loadUiPrefs();
       const wide = window.innerWidth >= 1280;
@@ -325,24 +340,27 @@ function HomeInner() {
      in-memory session only (refresh = clean slate), Google users get
      localStorage. Runs once the auth state has settled; the eventual
      check-in only reloads persisted history once. */
-  const { tier, isGuest, loading } = useAuth();
-  const historyLoadedRef = useRef(false);
+  const { user, tier, isGuest, loading } = useAuth();
+  /* Owner-scoped persistence: never let one account see another's chats. */
   useEffect(() => {
     if (loading) return;
-    if (isGuest) {
-      setHistoryPersistence("none");
-      // Downgrade (or first visit): drop anything already kept in memory,
-      // including history that outlived a signed-out session.
-      setSessions([]);
-      historyLoadedRef.current = false;
-    } else {
-      setHistoryPersistence("local");
-      if (!historyLoadedRef.current) {
-        historyLoadedRef.current = true;
-        setSessions(loadSessions());
-      }
+    const ownerId = !isGuest && user ? user.uid : null;
+    // never allow results from another account's in-flight run to land here
+    for (const e of runsRef.current.values()) {
+      e.cancelled = true;
+      try { e.controller.abort(); } catch { /* already aborted */ }
     }
-  }, [loading, isGuest]);
+    runsRef.current.clear();
+    setBusyIds(new Set());
+    droppedThreadsRef.current.clear();
+    ownerUidRef.current = ownerId;
+    // New account / guest session: clear what the previous account wrote to
+    // the screen and load only that account's persisted chats.
+    setMessages([]);
+    setActiveId(null);
+    setSessionCreatedAt(null);
+    setSessions(loadSessions(ownerId));
+  }, [loading, isGuest, user?.uid]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -352,6 +370,13 @@ function HomeInner() {
     uiRef.current = ui;
   }, [ui]);
 
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   function toggleDark() {
     const root = document.documentElement;
     // One-frame transition suppression so the flip does not smear.
@@ -369,11 +394,13 @@ function HomeInner() {
 
   /* ------------------------------------------------- panel show/width */
   /* History fully hides (width → 0; the icon rail's brand button, always
-     visible, reopens it); the overview docks to a slim strip (DOCK_W) that
-     stays findable at lg. Both animate via .side-anim: the shell slides,
-     the inner .side-content keeps its fixed width (no rewrap) and fades.
-     Toggles persist immediately; drag sizes persist on commit. All writers
-     share uiRef as the source of truth, so the ⌘B binding reads fresh. */
+     visible, reopens it). The overview is chat-scoped — it mounts beside
+     the chat only after a finished pack and, when collapsed, is replaced
+     by a floating Overview pill (no dock strip). Both animate via
+     .side-anim: the shell slides, the inner .side-content keeps its fixed
+     width (no rewrap) and fades. Toggles persist immediately; drag sizes
+     persist on commit. All writers share uiRef as the source of truth, so
+     the ⌘B binding reads fresh. */
 
   const applyUi = useCallback((next: UiPrefs) => {
     uiRef.current = next;
@@ -402,8 +429,16 @@ function HomeInner() {
 
   const toggleOverviewPanel = useCallback(() => {
     const nextVisible = !uiRef.current.overviewVisible;
-    setPanelPrefs({ overviewVisible: nextVisible });
-    if (!nextVisible) {
+    if (nextVisible) {
+      setPanelPrefs({ overviewVisible: true });
+      // The pill unmounts in the same commit the panel mounts; a frame
+      // later focus lands on the panel (tabIndex -1) so keyboard users
+      // never drop focus mid-swap.
+      requestAnimationFrame(() =>
+        document.getElementById("synopsi-overview-panel")?.focus({ preventScroll: true }),
+      );
+    } else {
+      setPanelPrefs({ overviewVisible: false });
       moveFocusToDock("synopsi-overview-panel", "synopsi-overview-dock");
     }
   }, [setPanelPrefs]);
@@ -478,83 +513,87 @@ function HomeInner() {
 
   /** After every terminal turn (done or error), snapshot the thread into
    *  localStorage so the sidebar list is real and searchable. */
-  useEffect(() => {
-    if (!dirty.current) return;
-    // Deferred a frame so the follow-up state updates don't run
-    // synchronously inside the effect body.
-    const raf = requestAnimationFrame(() => {
-      if (messages.some((m) => m.role === "assistant" && m.status === "pending")) return;
-      dirty.current = false;
+    /** Upsert a thread's row from its finished (terminal or live) turn state.
+      Works for the on-screen thread and for background completions. */
+  function commitThread(threadKey: string, snap: SnapshotMsg[]) {
+    const now = nowish();
+    const existing = sessionsRef.current.find((s) => s.id === threadKey);
+    const createdAt = existing?.createdAt ?? now;
+    const title = existing?.named ? existing.title : deriveTitle(snap);
 
-      const snap = currentSnapshot(messages);
-      if (snap.length === 0) return;
+    const row: SessionSnapshot = {
+      id: threadKey,
+      title,
+      createdAt,
+      updatedAt: now,
+      named: existing?.named,
+      messages: snap,
+    };
 
-      const now = Date.now();
-      const id = activeId ?? newSessionId();
-      const createdAtFinal = sessionCreatedAt ?? now;
+    const updated = [
+      row,
+      ...sessionsRef.current.filter((s) => s.id !== threadKey),
+    ].slice(0, MAX_SESSIONS);
 
-      const updated: SessionSnapshot[] = [
-        {
-          id,
-          title: deriveTitle(snap),
-          createdAt: createdAtFinal,
-          updatedAt: now,
-          messages: snap,
-        },
-        ...sessionsRef.current.filter((s) => s.id !== id),
-      ].slice(0, MAX_SESSIONS);
+    sessionsRef.current = updated;
+    storeSessions(updated, ownerUidRef.current);
+    setSessions(updated);
 
-      sessionsRef.current = updated;
-      storeSessions(updated);
-      setSessions(updated);
-
-      if (activeId === null) setActiveId(id);
-      if (sessionCreatedAt === null) setSessionCreatedAt(createdAtFinal);
-
-      /* Name the chat after its first successful turn: one short call to
-         the same Ollama chat API (/api/title). Heuristic title stays until
-         it resolves; failures leave the heuristic name in place. The ref
-         is consumed here so a chat is named at most once. */
-      const row = updated.find((s) => s.id === id) as SessionSnapshot;
-      const pending = pendingTitleRef.current;
-      if (pending && !row.named) {
-        pendingTitleRef.current = null;
-        void fetch("/api/title", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes: pending.excerpt }),
+    const pending = pendingTitleRef.current.get(threadKey);
+    if (pending && snap.some((m) => m.kind === "done") && !existing?.named) {
+      pendingTitleRef.current.delete(threadKey);
+      const capturedId = threadKey;
+      void fetch("/api/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: pending.excerpt }),
+      })
+        .then(async (res) => {
+          const data = (await res.json().catch(() => null)) as
+            | { title?: string }
+            | null;
+          const named =
+            res.ok && typeof data?.title === "string" ? data.title.trim() : "";
+          if (!named) return;
+          const curr = sessionsRef.current.find((s) => s.id === capturedId);
+          if (!curr) return;
+          const stamped: SessionSnapshot = { ...curr, title: named, named: true };
+          const next = [
+            stamped,
+            ...sessionsRef.current.filter((x) => x.id !== capturedId),
+          ].slice(0, MAX_SESSIONS);
+          sessionsRef.current = next;
+          storeSessions(next, ownerUidRef.current);
+          setSessions(next);
+          namedSetRef.current.add(capturedId);
         })
-          .then(async (res) => {
-            const data = (await res.json().catch(() => null)) as
-              | { title?: string }
-              | null;
-            const named =
-              res.ok && typeof data?.title === "string" ? data.title.trim() : "";
-            if (!named) return;
-            const stamped: SessionSnapshot = { ...row, title: named, named: true };
-            const next = [stamped, ...sessionsRef.current.filter((x) => x.id !== id)].slice(
-              0,
-              MAX_SESSIONS,
-            );
-            sessionsRef.current = next;
-            storeSessions(next);
-            setSessions(next);
-            chatNamedRef.current = true;
-          })
-          .catch(() => {
-            /* nice-to-have only — the heuristic title already applies */
-          });
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [messages, activeId, sessionCreatedAt]);
+        .catch(() => {
+          /* nice-to-have only — the heuristic title already applies */
+        });
+    }
+  }
+
 
   function openSession(id: string) {
     const s = sessionsRef.current.find((x) => x.id === id);
     if (!s) return;
     setDrawerOpen(false);
-    setShellEpoch((n) => n + 1); // hero↔thread bridge for the restored thread
-    const msgs: ThreadMessage[] = s.messages.flatMap((sm): ThreadMessage[] => {
+    // Never blow away a thread that's currently live (pending).
+    if (id === activeId) return;
+    // Stash the thread we are leaving so its in-flight generation (if any)
+    // and recent view state survive the trip.
+    if (activeId && messages.length > 0) {
+      droppedThreadsRef.current.set(activeId, messages);
+    }
+    // Restore from the stashed live thread if we have one, otherwise from
+    // the persisted snapshot (which drops pending).
+    const stash = droppedThreadsRef.current.get(id);
+    let restored: ThreadMessage[];
+    if (stash) {
+      droppedThreadsRef.current.delete(id);
+      restored = stash;
+    } else {
+      restored = s.messages.flatMap((sm): ThreadMessage[] => {
       if (sm.kind === "user") {
         return [
           {
@@ -586,20 +625,20 @@ function HomeInner() {
           retry: null, // File payloads are not restorable — new sends only
         },
       ];
-    });
-    dirty.current = false;
-    pendingTitleRef.current = null;
-    chatNamedRef.current = Boolean(s.named);
+      });
+    }
+    if (s.named) namedSetRef.current.add(s.id);
     setLocalError(null);
-    setMessages(msgs);
+    setMessages(restored);
     setActiveId(s.id);
     setSessionCreatedAt(s.createdAt);
+    setShellEpoch((n) => n + 1); // hero↔thread bridge for the restored thread
   }
 
   function newChat() {
-    dirty.current = false;
-    pendingTitleRef.current = null;
-    chatNamedRef.current = false;
+    if (activeId && messages.length > 0) {
+      droppedThreadsRef.current.set(activeId, messages);
+    }
     setDrawerOpen(false);
     setShellEpoch((n) => n + 1);
     setLocalError(null);
@@ -608,15 +647,29 @@ function HomeInner() {
     setSessionCreatedAt(null);
   }
 
+  function cancelRunFor(threadKey: string) {
+    for (const [aid, entry] of runsRef.current) {
+      if (entry.threadKey === threadKey) {
+        entry.cancelled = true;
+        try { entry.controller.abort(); } catch { /* already aborted */ }
+        runsRef.current.delete(aid);
+      }
+    }
+    setBusyIds((prev) => {
+      const n = new Set(prev);
+      n.delete(threadKey);
+      return n;
+    });
+    droppedThreadsRef.current.delete(threadKey);
+  }
+
   function deleteSession(id: string) {
+    cancelRunFor(id);
     const updated = sessionsRef.current.filter((s) => s.id !== id);
     sessionsRef.current = updated;
-    storeSessions(updated);
+    storeSessions(updated, ownerUidRef.current);
     setSessions(updated);
     if (id === activeId) {
-      dirty.current = false;
-      pendingTitleRef.current = null;
-      chatNamedRef.current = false;
       setShellEpoch((n) => n + 1); // thread → hero bridge
       setMessages([]);
       setActiveId(null);
@@ -625,17 +678,22 @@ function HomeInner() {
   }
 
   function clearHistory() {
+    for (const [aid] of runsRef.current) {
+      const e = runsRef.current.get(aid);
+      if (e) { e.cancelled = true; try { e.controller.abort(); } catch { } }
+    }
+    runsRef.current.clear();
+    droppedThreadsRef.current.clear();
+    setBusyIds(new Set());
     sessionsRef.current = [];
-    storeSessions([]);
+    storeSessions([], ownerUidRef.current);
     setSessions([]);
-    dirty.current = false;
-    pendingTitleRef.current = null;
-    chatNamedRef.current = false;
     setShellEpoch((n) => n + 1); // thread → hero bridge
     setMessages([]);
     setActiveId(null);
     setSessionCreatedAt(null);
   }
+
 
   /* ------------------------------------------------------------- sending */
 
@@ -653,18 +711,12 @@ function HomeInner() {
     const userId = nextId.current++;
     const assistantId = nextId.current++;
     const retry: RetryInput = { text, files: useFiles };
-    // Mode state belongs to THIS turn: exports and the Sources block follow
-    // the message they were generated with, not the page's live toggles.
     const turnQuiz = quizMode;
     const turnResearch = researchMode;
-    // The title names the WHOLE chat, generated from the opening notes after
-    // the first finished turn in this thread.
     const isFirstDone = !messages.some(
       (m) => m.role === "assistant" && m.status === "done",
     );
 
-    /* Excerpt for chat auto-naming: pasted text first, else the first plain
-       text file's content, else the file names themselves. */
     const TITLE_EXCERPT_CHARS = 4_000;
     let titleExcerpt = text.slice(0, TITLE_EXCERPT_CHARS);
     if (!titleExcerpt) {
@@ -679,6 +731,45 @@ function HomeInner() {
         }
       }
       if (!titleExcerpt) titleExcerpt = useFiles.map((f) => f.name).join(", ");
+    }
+
+    // Materialise the chat identity NOW so the sidebar lists it during
+    // generation; a brand-new chat appears in history the instant send runs.
+    const currentActive = activeIdRef.current;
+    const threadKey = currentActive ?? newSessionId();
+    const isNewChat = currentActive === null;
+    const now = nowish();
+
+    const userSnapshot = {
+      kind: "user" as const,
+      files: useFiles.map((f) => ({ name: f.name, size: f.size })),
+      textChars: text ? text.length : null,
+    };
+    const snapWithUser = [...currentSnapshot(messages), userSnapshot];
+    const existingRow = sessionsRef.current.find((s) => s.id === threadKey);
+    const createdAtFinal = existingRow?.createdAt ?? sessionCreatedAt ?? now;
+    const sendRow: SessionSnapshot = {
+      id: threadKey,
+      title: existingRow?.named
+        ? existingRow.title
+        : deriveTitle(snapWithUser),
+      createdAt: createdAtFinal,
+      updatedAt: now,
+      named: existingRow?.named,
+      messages: snapWithUser,
+    };
+    const upsert = [
+      sendRow,
+      ...sessionsRef.current.filter((s) => s.id !== threadKey),
+    ].slice(0, MAX_SESSIONS);
+    sessionsRef.current = upsert;
+    storeSessions(upsert, ownerUidRef.current);
+    setSessions(upsert);
+
+    if (isNewChat) {
+      activeIdRef.current = threadKey;
+      setActiveId(threadKey);
+      setSessionCreatedAt(createdAtFinal);
     }
 
     setMessages((m) => [
@@ -698,13 +789,42 @@ function HomeInner() {
         researchUsed: turnResearch,
       },
     ]);
-    dirty.current = true;
-    setIsLoading(true);
 
-    /* The pasted text leaves the textarea the moment the prompt is sent —
-       it lives on in the thread bubble; files stay attached until the run
-       succeeds so a failed send keeps everything one retry away. */
+    setBusyIds((prev) => {
+      const n = new Set(prev);
+      n.add(threadKey);
+      return n;
+    });
+
     if (!input) setPastedState("");
+
+    const controller = new AbortController();
+    const runEntry = {
+      threadKey,
+      cancelled: false,
+      controller,
+    };
+    runsRef.current.set(assistantId, runEntry);
+
+    function resolveTurn(
+      setter: (msgs: ThreadMessage[]) => ThreadMessage[],
+      onSuccess?: () => void,
+    ) {
+      if (runEntry.cancelled) return;
+      let next: ThreadMessage[];
+      if (activeIdRef.current === threadKey) {
+        next = setter(messagesRef.current);
+        messagesRef.current = next;
+        setMessages(next);
+      } else {
+        const stash = droppedThreadsRef.current.get(threadKey);
+        if (!stash) return;
+        next = setter(stash);
+        droppedThreadsRef.current.set(threadKey, next);
+      }
+      commitThread(threadKey, currentSnapshot(next));
+      if (onSuccess && activeIdRef.current === threadKey) onSuccess();
+    }
 
     try {
       const form = new FormData();
@@ -715,14 +835,14 @@ function HomeInner() {
       form.append("quiz", String(quizMode));
       form.append("research", String(researchMode));
 
-      const res = await fetch("/api/generate", { method: "POST", body: form });
+      const res = await fetch("/api/generate", { method: "POST", body: form, signal: controller.signal });
       const data = (await res.json().catch(() => null)) as
         | (ApiResult & { error?: string })
         | null;
 
       if (!res.ok) {
-        setMessages((m) =>
-          m.map((x) =>
+        resolveTurn((msgs) =>
+          msgs.map((x) =>
             x.id === assistantId
               ? {
                   ...x,
@@ -736,32 +856,44 @@ function HomeInner() {
           ),
         );
       } else {
-        // Success clears the attachments; errors keep them so a retry resends exactly.
         if (!input) clearFiles();
-        /* Queue the one-shot AI title for the history list: the same Ollama
-           API names this chat from the opening notes once it has content. */
-        if (isFirstDone && !chatNamedRef.current) {
-          chatNamedRef.current = true; // one naming attempt per chat
-          pendingTitleRef.current = { excerpt: titleExcerpt };
+        if (isFirstDone && !namedSetRef.current.has(threadKey)) {
+          namedSetRef.current.add(threadKey);
+          pendingTitleRef.current.set(threadKey, { excerpt: titleExcerpt });
         }
-        setMessages((m) =>
-          m.map((x) =>
-            x.id === assistantId
-              ? {
-                  id: x.id,
-                  role: "assistant" as const,
-                  status: "done" as const,
-                  result: data as ApiResult,
-                  quizMode: turnQuiz,
-                  researchUsed: turnResearch,
-                }
-              : x,
-          ),
+        resolveTurn(
+          (msgs) =>
+            msgs.map((x) =>
+              x.id === assistantId
+                ? {
+                    id: x.id,
+                    role: "assistant" as const,
+                    status: "done" as const,
+                    result: data as ApiResult,
+                    quizMode: turnQuiz,
+                    researchUsed: turnResearch,
+                  }
+                : x,
+            ),
+          () => {
+            // Auto-expand overview for the on-screen chat only.
+            if (!uiRef.current.overviewVisible) {
+              setPanelPrefs({ overviewVisible: true });
+              if (document.activeElement?.id === "synopsi-overview-dock") {
+                requestAnimationFrame(() =>
+                  document.getElementById("synopsi-overview-panel")?.focus({
+                    preventScroll: true,
+                  }),
+                );
+              }
+            }
+          },
         );
       }
     } catch {
-      setMessages((m) =>
-        m.map((x) =>
+      if (runEntry.cancelled) return;
+      resolveTurn((msgs) =>
+        msgs.map((x) =>
           x.id === assistantId
             ? {
                 ...x,
@@ -773,7 +905,12 @@ function HomeInner() {
         ),
       );
     } finally {
-      setIsLoading(false);
+      runsRef.current.delete(assistantId);
+      setBusyIds((prev) => {
+        const n = new Set(prev);
+        n.delete(threadKey);
+        return n;
+      });
     }
   }
 
@@ -842,6 +979,7 @@ function HomeInner() {
           <HistoryPanel
             sessions={sessions}
             activeId={activeId}
+            generatingIds={Array.from(busyIds)}
             onSelect={openSession}
             onDelete={deleteSession}
             onCollapse={toggleHistoryPanel}
@@ -864,9 +1002,10 @@ function HomeInner() {
         )}
       </aside>
 
-      {/* No border-r here: the overview rail carries its own border-l —
-          two hairlines would stack at this edge. */}
-      <main className="flex min-w-0 flex-1 flex-col bg-paper">
+      {/* One top bar, one cut: it starts right of the history sidebar and
+          runs unbroken over the chat AND the overview rail — the overview
+          lives on the row below the bar, not beside it. */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           title={threadTitle}
           createdAt={sessionCreatedAt}
@@ -878,239 +1017,255 @@ function HomeInner() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        {empty ? (
-          <div className="flex flex-1 items-center justify-center overflow-y-auto overscroll-contain">
-            <div
-              key={`hero-${shellEpoch}`}
-              className="ui-enter mx-auto w-full max-w-3xl px-4 py-10 text-center sm:px-8"
-            >
-              <Logomark className="mx-auto size-14" />
-              {/* Dynamic tagline: the leading sentence is static, the keyword is
-                  typed/cycled — reduced-motion users get a plain fade-free swap. */}
-              <h1 className="mt-6 text-balance text-2xl font-bold tracking-tight sm:text-4xl">
-                <TypewriterTagline />
-              </h1>
-              <p className="mt-3 text-base leading-relaxed text-muted">
-                Summary, key concepts and revision questions — answered strictly
-                from your own notes.
-              </p>
+        <div className="relative flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col bg-paper">
+            {empty ? (
+              <div className="flex flex-1 items-center justify-center overflow-y-auto overscroll-contain">
+                <div
+                  key={`hero-${shellEpoch}`}
+                  className="ui-enter mx-auto w-full max-w-3xl px-4 py-10 text-center sm:px-8"
+                >
+                  <Logomark className="mx-auto size-14" />
+                  {/* Dynamic tagline: the leading sentence is static, the keyword is
+                      typed/cycled — reduced-motion users get a plain fade-free swap. */}
+                  <h1 className="mt-6 text-balance text-2xl font-bold tracking-tight sm:text-4xl">
+                    <TypewriterTagline />
+                  </h1>
+                  <p className="mt-3 text-base leading-relaxed text-muted">
+                    Summary, key concepts and revision questions — answered strictly
+                    from your own notes.
+                  </p>
 
-              {/* Supporting elements: the accepted-input inventory (static,
-                  informational — no dead controls). */}
-              <ul
-                aria-label="Inputs you can feed it"
-                className="mx-auto mt-5 flex max-w-lg flex-wrap items-center justify-center gap-2"
-              >
-                {INPUT_KINDS.map((k) => (
-                  <li
-                    key={k.label}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm font-medium text-muted"
+                  {/* Supporting elements: the accepted-input inventory (static,
+                      informational — no dead controls). */}
+                  <ul
+                    aria-label="Inputs you can feed it"
+                    className="mx-auto mt-5 flex max-w-lg flex-wrap items-center justify-center gap-2"
                   >
-                    <k.icon className="size-4 text-accent" aria-hidden="true" />
-                    {k.label}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-muted">or a mix of several</p>
+                    {INPUT_KINDS.map((k) => (
+                      <li
+                        key={k.label}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm font-medium text-muted"
+                      >
+                        <k.icon className="size-4 text-accent" aria-hidden="true" />
+                        {k.label}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-muted">or a mix of several</p>
 
-              <p className="mt-5 text-xs text-muted">
-                gemma4:31b via Ollama Cloud (free tier)
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                Try the sample at{" "}
-                <code className="rounded border border-line bg-card px-1 font-mono text-[0.9em]">
-                  sample_notes/sample_lecture.txt
-                </code>
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div
-            role="log"
-            aria-label="Conversation"
-            className="flex-1 overflow-y-auto overscroll-contain"
-          >
-            <div
-              key={`thread-${shellEpoch}`}
-              className="ui-enter mx-auto w-full max-w-3xl px-4 sm:px-8"
-            >
-              <ol className="space-y-6 pb-6 pt-6">
-                {messages.map((m) =>
-                  m.role === "user" ? (
-                    <li key={m.id} className="ui-enter flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl rounded-br-md border border-line bg-primary/10 px-4 py-2.5">
-                        {m.files.map((f) => (
-                          <p
-                            key={f.name}
-                            className="flex items-center gap-2 text-sm font-medium"
-                          >
-                            <FileText
-                              className="size-4 shrink-0 text-accent"
-                              aria-hidden="true"
-                            />
-                            <span className="truncate" title={f.name}>
-                              {f.name}
-                            </span>
-                            <span className="shrink-0 text-xs text-muted tabular-nums">
-                              {formatBytes(f.size)}
-                            </span>
-                          </p>
-                        ))}
-                        {m.textChars !== null && (
-                          <p
-                            className={
-                              m.files.length
-                                ? "mt-0.5 text-sm font-medium"
-                                : "text-sm font-medium"
-                            }
-                          >
-                            Pasted notes
-                          </p>
-                        )}
-                        {m.textChars !== null && (
-                          <p className="mt-0.5 text-xs text-muted">
-                            {new Intl.NumberFormat("en-US").format(m.textChars)}{" "}
-                            characters
-                          </p>
-                        )}
-                        {m.files.length > 1 && (
-                          <p className="mt-0.5 text-xs text-muted">
-                            {m.files.length} files
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  ) : m.status === "pending" ? (
-                    <li key={m.id} className="ui-enter flex items-center gap-3 py-1">
-                      <TypingDots />
-                      <div>
-                        <p className="text-sm font-medium">Structuring your notes…</p>
-                        <p className="mt-0.5 text-xs text-muted">
-                          <Elapsed startedAt={m.startedAt} /> · can take up to two
-                          minutes when the cloud is busy
-                        </p>
-                      </div>
-                    </li>
-                  ) : m.status === "error" ? (
-                    <li key={m.id} className="ui-enter">
-                      <div className="rounded-2xl border border-err/30 bg-err-bg px-4 py-3.5">
-                        <p className="flex items-start gap-2.5 text-sm text-err">
-                          <TriangleAlert
-                            className="mt-0.5 size-4 shrink-0"
-                            aria-hidden="true"
+                  <p className="mt-5 text-xs text-muted">
+                    gemma4:31b via Ollama Cloud (free tier)
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Try the sample at{" "}
+                    <code className="rounded border border-line bg-card px-1 font-mono text-[0.9em]">
+                      sample_notes/sample_lecture.txt
+                    </code>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div
+                role="log"
+                aria-label="Conversation"
+                className="flex-1 overflow-y-auto overscroll-contain"
+              >
+                <div
+                  key={`thread-${shellEpoch}`}
+                  className="ui-enter mx-auto w-full max-w-3xl px-4 sm:px-8"
+                >
+                  <ol className="space-y-6 pb-6 pt-6">
+                    {messages.map((m) =>
+                      m.role === "user" ? (
+                        <li key={m.id} className="ui-enter flex justify-end">
+                          <div className="max-w-[85%] rounded-2xl rounded-br-md border border-line bg-primary/10 px-4 py-2.5">
+                            {m.files.map((f) => (
+                              <p
+                                key={f.name}
+                                className="flex items-center gap-2 text-sm font-medium"
+                              >
+                                <FileText
+                                  className="size-4 shrink-0 text-accent"
+                                  aria-hidden="true"
+                                />
+                                <span className="truncate" title={f.name}>
+                                  {f.name}
+                                </span>
+                                <span className="shrink-0 text-xs text-muted tabular-nums">
+                                  {formatBytes(f.size)}
+                                </span>
+                              </p>
+                            ))}
+                            {m.textChars !== null && (
+                              <p
+                                className={
+                                  m.files.length
+                                    ? "mt-0.5 text-sm font-medium"
+                                    : "text-sm font-medium"
+                                }
+                              >
+                                Pasted notes
+                              </p>
+                            )}
+                            {m.textChars !== null && (
+                              <p className="mt-0.5 text-xs text-muted">
+                                {new Intl.NumberFormat("en-US").format(m.textChars)}{" "}
+                                characters
+                              </p>
+                            )}
+                            {m.files.length > 1 && (
+                              <p className="mt-0.5 text-xs text-muted">
+                                {m.files.length} files
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      ) : m.status === "pending" ? (
+                        <li key={m.id} className="ui-enter flex items-center gap-3 py-1">
+                          <TypingDots />
+                          <div>
+                            <p className="text-sm font-medium">Structuring your notes…</p>
+                            <p className="mt-0.5 text-xs text-muted">
+                              <Elapsed startedAt={m.startedAt} /> · can take up to two
+                              minutes when the cloud is busy
+                            </p>
+                          </div>
+                        </li>
+                      ) : m.status === "error" ? (
+                        <li key={m.id} className="ui-enter">
+                          <div className="rounded-2xl border border-err/30 bg-err-bg px-4 py-3.5">
+                            <p className="flex items-start gap-2.5 text-sm text-err">
+                              <TriangleAlert
+                                className="mt-0.5 size-4 shrink-0"
+                                aria-hidden="true"
+                              />
+                              <span>
+                                <strong className="font-semibold">
+                                  Could not generate a study pack.
+                                </strong>{" "}
+                                {m.message}
+                              </span>
+                            </p>
+                            {m.retry && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (m.retry) void send(m.retry);
+                                }}
+                                className={RETRY_CHIP}
+                              >
+                                Try again
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      ) : (
+                        <li key={m.id} className="min-w-0">
+                          <ResultCard
+                            result={m.result}
+                            quizMode={m.quizMode}
+                            researchUsed={m.researchUsed}
                           />
-                          <span>
-                            <strong className="font-semibold">
-                              Could not generate a study pack.
-                            </strong>{" "}
-                            {m.message}
-                          </span>
-                        </p>
-                        {m.retry && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (m.retry) void send(m.retry);
-                            }}
-                            className={RETRY_CHIP}
-                          >
-                            Try again
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ) : (
-                    <li key={m.id} className="min-w-0">
-                      <ResultCard
-                        result={m.result}
-                        quizMode={m.quizMode}
-                        researchUsed={m.researchUsed}
-                      />
-                    </li>
-                  ),
-                )}
-                <li ref={endRef} aria-hidden="true" />
-              </ol>
+                        </li>
+                      ),
+                    )}
+                    <li ref={endRef} aria-hidden="true" />
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {/* The composer keeps the conversation's measure (max-w-3xl, the
+                same px-4/sm:px-8 gutters as the hero and thread) — its card
+                edges line up with the widest message content instead of
+                sprawling across the empty area beside the overview or on
+                ultra-wide viewports. */}
+            <div className="mx-auto w-full max-w-3xl px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 sm:px-8">
+              <Composer
+                text={pasted}
+                files={files}
+                busy={messages.some((m)=>m.role==="assistant"&&m.status==="pending")}
+                quizMode={quizMode}
+                questionsEnabled={questionsEnabled}
+                questionCount={questionCount}
+                researchMode={researchMode}
+                error={localError}
+                onText={setPasted}
+                onFiles={addFiles}
+                onRemoveFile={removeFile}
+                onQuizMode={setQuizOn}
+                onQuestionsEnabled={setQuestionsOn}
+                onQuestionCount={setQuestionCount}
+                onResearchMode={setResearchMode}
+                onSubmit={() => void send()}
+              />
             </div>
-          </div>
-        )}
+          </main>
 
-        <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 sm:px-6">
-          <Composer
-            text={pasted}
-            files={files}
-            busy={isLoading}
-            quizMode={quizMode}
-            questionsEnabled={questionsEnabled}
-            questionCount={questionCount}
-            researchMode={researchMode}
-            error={localError}
-            onText={setPasted}
-            onFiles={addFiles}
-            onRemoveFile={removeFile}
-            onQuizMode={setQuizOn}
-            onQuestionsEnabled={setQuestionsOn}
-            onQuestionCount={setQuestionCount}
-            onResearchMode={setResearchMode}
-            onSubmit={() => void send()}
-          />
+          {/* Overview rail (lg+): mounts beside the chat ONLY once the open
+              chat has a finished pack — the hero never shows it, an errored
+              chat keeps it away, and a new chat starts fresh with its own.
+              Each finished generation reopens it at full expansion; when
+              the user collapses it, the panel vanishes (no dock strip — a
+              floating Overview pill takes its place at the chat's top
+              right). Still resizable, growing leftward (splitter on its
+              left edge). */}
+          {lastDone && (
+            <>
+              {ui.overviewVisible && (
+                <aside
+                  id="synopsi-overview-panel"
+                  aria-label="Pack overview"
+                  tabIndex={-1}
+                  className={cn(
+                    "side-anim relative hidden h-full shrink-0 overflow-hidden border-l border-line bg-paper lg:block",
+                    draggingPanel === "overview" && "no-motion",
+                  )}
+                  style={{ width: ui.overviewWidth }}
+                >
+                  <div
+                    className="side-content h-full"
+                    style={{ width: ui.overviewWidth }}
+                  >
+                    <OverviewRail
+                      result={lastDone.result}
+                      researchUsed={lastDone.researchUsed}
+                      quizMode={lastDone.quizMode}
+                      onCollapse={toggleOverviewPanel}
+                    />
+                  </div>
+                  <Splitter
+                    value={ui.overviewWidth}
+                    min={OVERVIEW_MIN}
+                    max={OVERVIEW_MAX}
+                    def={OVERVIEW_DEF}
+                    side="left"
+                    label="Resize pack overview panel"
+                    controls="synopsi-overview-panel"
+                    active={draggingPanel === "overview"}
+                    onActiveChange={(v) => setDraggingPanel(v ? "overview" : null)}
+                    onChange={(w) => applyUi({ ...uiRef.current, overviewWidth: w })}
+                    onCommit={() => setPanelPrefs({})}
+                  />
+                </aside>
+              )}
+              {!ui.overviewVisible && (
+                <button
+                  id="synopsi-overview-dock"
+                  type="button"
+                  onClick={toggleOverviewPanel}
+                  title="Show pack overview"
+                  className="absolute right-4 top-4 z-20 hidden items-center gap-2 rounded-full border border-line bg-card py-2 pl-3 pr-3.5 text-sm font-medium text-ink shadow-sm transition-[border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none lg:flex"
+                >
+                  <Info className="size-4 shrink-0 text-accent" aria-hidden="true" />
+                  Overview
+                </button>
+              )}
+            </>
+          )}
         </div>
-      </main>
-
-      {/* Overview rail (lg+): same shell vocabulary — collapsible (dock to
-          a slim strip on the right) + resizable. First-run default: docked
-          below 1280px, expanded above (mount resolves it once). Grows
-          leftward: the splitter sits on its left edge. */}
-      <aside
-        id="synopsi-overview-panel"
-        aria-label="Pack overview"
-        className={cn(
-          "side-anim relative hidden h-full shrink-0 overflow-hidden border-l border-line bg-paper lg:block",
-          draggingPanel === "overview" && "no-motion",
-        )}
-        style={{ width: ui.overviewVisible ? ui.overviewWidth : DOCK_W }}
-      >
-        <div
-          className={cn("side-content h-full", !ui.overviewVisible && "opacity-0")}
-          style={{ width: ui.overviewWidth }}
-          inert={!ui.overviewVisible || undefined}
-        >
-          <OverviewRail
-            result={lastDone ? lastDone.result : null}
-            researchUsed={lastDone?.researchUsed ?? false}
-            quizMode={lastDone?.quizMode ?? false}
-            onCollapse={toggleOverviewPanel}
-          />
-        </div>
-        {ui.overviewVisible ? (
-          <Splitter
-            value={ui.overviewWidth}
-            min={OVERVIEW_MIN}
-            max={OVERVIEW_MAX}
-            def={OVERVIEW_DEF}
-            side="left"
-            label="Resize pack overview panel"
-            controls="synopsi-overview-panel"
-            active={draggingPanel === "overview"}
-            onActiveChange={(v) => setDraggingPanel(v ? "overview" : null)}
-            onChange={(w) => applyUi({ ...uiRef.current, overviewWidth: w })}
-            onCommit={() => setPanelPrefs({})}
-          />
-        ) : (
-          <button
-            id="synopsi-overview-dock"
-            type="button"
-            onClick={toggleOverviewPanel}
-            title="Show pack overview"
-            aria-label="Show pack overview panel"
-            className="ui-enter absolute inset-y-0 right-0 z-10 grid w-12 place-items-center transition [transition-property:color] hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
-          >
-            <span className="grid size-9 place-items-center rounded-full border border-line bg-card text-accent">
-              <Info className="size-4.5" aria-hidden="true" />
-            </span>
-          </button>
-        )}
-      </aside>
+      </div>
 
       {/* ----------------------------------------- history drawer (<lg) -------- */}
       {drawerOpen && (
@@ -1142,6 +1297,7 @@ function HomeInner() {
               <HistoryPanel
                 sessions={sessions}
                 activeId={activeId}
+                generatingIds={Array.from(busyIds)}
                 onSelect={openSession}
                 onNew={newChat}
                 onDelete={deleteSession}

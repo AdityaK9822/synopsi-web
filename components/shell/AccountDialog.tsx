@@ -83,10 +83,17 @@ export default function AccountDialog({
               used={gensUsed}
               limit={gensLimit}
               pct={genPct}
-              suffix="this month"
+              suffix="this 5h window"
             />
-            <Meter label="Downloads used" used={dlUsed} limit={dlLimit} pct={dlPct} suffix="this month" />
+            <Meter label="Downloads used" used={dlUsed} limit={dlLimit} pct={dlPct} suffix="this 5h window" />
           </div>
+
+          {overview?.resetAt && !isNaN(new Date(overview.resetAt).getTime()) && (
+            <p className="text-xs text-muted">
+              Resets in {Math.max(0, Math.round((new Date(overview.resetAt).getTime() - Date.now()) / 60000))} min
+              {" "}· at {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(new Date(overview.resetAt))}.
+            </p>
+          )}
 
           {!gatesLive && (
             <p className="text-center text-xs text-muted">

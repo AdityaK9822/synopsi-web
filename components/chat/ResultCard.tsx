@@ -78,6 +78,14 @@ function verdictClass(verdict: string): string {
   return "border-line bg-line/40 text-ink"; // Unclear & anything unparsed stays neutral
 }
 
+/** "summary points" / "summary points and revision questions" — feeds the
+    one empty-sections line (a run of per-section "no X parsed" notes reads
+    like the same mistake three times). */
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 /* ------------------------------------------------------------ component */
 
 export default function ResultCard({
@@ -87,6 +95,13 @@ export default function ResultCard({
 }: ResultCardProps) {
   const { isGuest: guest } = useAuth();
   const { pack, sourceName, model, raw } = result;
+  /** Sections the parser produced nothing for — named ONCE at the top of
+      the pack view, each with its own recovery path into the Markdown
+      tab instead of one per empty section. */
+  const missing: string[] = [];
+  if (pack.summary.length === 0) missing.push("summary points");
+  if (pack.keyConcepts.length === 0) missing.push("key concepts");
+  if (pack.questions.length === 0) missing.push("revision questions");
   const [view, setView] = useState<View>("pack");
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [mdCopyState, setMdCopyState] = useState<CopyState>("idle");
@@ -362,32 +377,35 @@ export default function ResultCard({
               <SourcesRow sources={result.sources!} pack={pack} />
             )}
 
-            <section aria-label="Summary">
-              <h2 className={SECTION_H}>
-                <BookOpen className="size-5 text-accent" aria-hidden="true" />
-                Summary
-              </h2>
-              {pack.summary.length > 0 ? (
+            {missing.length > 0 && (
+              <p className="max-w-prose text-sm leading-relaxed text-muted">
+                No {joinList(missing)} came out of these notes — the complete
+                model output stays available in the Markdown tab.
+              </p>
+            )}
+
+            {pack.summary.length > 0 && (
+              <section aria-label="Summary">
+                <h2 className={SECTION_H}>
+                  <BookOpen className="size-5 text-accent" aria-hidden="true" />
+                  Summary
+                </h2>
                 <ul className="mt-3 max-w-prose list-disc space-y-1.5 pl-5 text-base leading-relaxed">
                   {pack.summary.map((point, i) => (
                     <li key={i}>{point}</li>
                   ))}
                 </ul>
-              ) : (
-                <p className="mt-3 text-sm text-muted">
-                  No summary parsed — read the full markdown in the Markdown tab.
-                </p>
-              )}
-            </section>
+              </section>
+            )}
 
-            <section aria-label="Key concepts">
-              <h2 className={SECTION_H}>
-                <Lightbulb className="size-5 text-accent" aria-hidden="true" />
-                Key concepts
-              </h2>
-              {pack.keyConcepts.length > 0 ? (
-                // Aligned term | definition columns — same grid as the PDF
-                // key-concepts page, easier to scan than stacked paragraphs.
+            {pack.keyConcepts.length > 0 && (
+              <section aria-label="Key concepts">
+                <h2 className={SECTION_H}>
+                  <Lightbulb className="size-5 text-accent" aria-hidden="true" />
+                  Key concepts
+                </h2>
+                {/* Aligned term | definition columns — same grid as the PDF
+                    key-concepts page, easier to scan than stacked paragraphs. */}
                 <dl className="mt-3 max-w-prose">
                   {pack.keyConcepts.map((c, i) => (
                     <div
@@ -408,19 +426,15 @@ export default function ResultCard({
                     </div>
                   ))}
                 </dl>
-              ) : (
-                <p className="mt-3 text-sm text-muted">
-                  No key concepts parsed — read the full markdown in the Markdown tab.
-                </p>
-              )}
-            </section>
+              </section>
+            )}
 
-            <section aria-label="Revision questions">
-              <h2 className={SECTION_H}>
-                <ListChecks className="size-5 text-accent" aria-hidden="true" />
-                {quizInteractive ? "Quiz" : "Revision questions"}
-              </h2>
-              {pack.questions.length > 0 ? (
+            {pack.questions.length > 0 && (
+              <section aria-label="Revision questions">
+                <h2 className={SECTION_H}>
+                  <ListChecks className="size-5 text-accent" aria-hidden="true" />
+                  {quizInteractive ? "Quiz" : "Revision questions"}
+                </h2>
                 <>
                   {quizInteractive && (
                     <p
@@ -463,13 +477,8 @@ export default function ResultCard({
                     ))}
                   </ol>
                 </>
-              ) : (
-                <p className="mt-3 text-sm text-muted">
-                  No revision questions parsed — read the full markdown in
-                  the Markdown tab.
-                </p>
-              )}
-            </section>
+              </section>
+            )}
 
             {(pack.factChecks.length > 0 || pack.sources.length > 0) && (
               <section id="fact-check" aria-label="Fact-check and sources" className="scroll-mt-24">

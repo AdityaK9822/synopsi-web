@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils";
  * Pointer — press and drag horizontally; the width follows the pointer 1:1
  *   with transitions disabled (direct manipulation must never lag), and a
  *   double-click resets to the default width.
- * Keyboard — Left/Right step ±24px (Shift = fine ±8px, per-edge direction),
- *   Home/End jump to min/max; focus ring + value are announced by the
- *   platform through role="separator" + aria-values.
+ * Keyboard — the panel edge grows/shrinks with Left/Right (±24px, Shift for
+ *   a fine 8px step, direction-aware per edge), Home/End jump to min/max.
  *
- * This is an enhancement control: skipping it in a_tab order costs nothing.
+ * Focus is indicated by the accent rail that lights along the panel edge
+ * (the strip itself is too thin to carry a ring); this is an enhancement
+ * control, so skipping it costs nothing.
  */
 export default function Splitter({
   value,
@@ -28,7 +29,6 @@ export default function Splitter({
   onActiveChange,
   onChange,
   onCommit,
-  onReset,
 }: {
   /** Current panel width (px). */
   value: number;
@@ -41,21 +41,20 @@ export default function Splitter({
   label: string;
   /** id of the resizable panel (aria-controls). */
   controls: string;
-  /** True while a pointer drag is live (parent may disable transitions). */
+  /** True while a pointer drag is live (parent disables transitions). */
   active: boolean;
   onActiveChange: (dragging: boolean) => void;
   /** Live width updates during drag / per keypress (no persistence). */
   onChange: (width: number) => void;
-  /** Called after a drag ends (persist the settled value). */
+  /** Called when a drag ends / a keyboard edit settles (persist). */
   onCommit: () => void;
-  onReset: () => void;
 }) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
     if (!active) return;
-    // Direct manipulation: the rest of the page must not select text or
-    // show a text cursor while the pointer drags the edge.
+    // Direct manipulation: the page must not select text or show a text
+    // cursor while the pointer drags the edge.
     const prevCursor = document.body.style.cursor;
     const prevSelect = document.body.style.userSelect;
     document.body.style.cursor = "col-resize";
@@ -68,10 +67,6 @@ export default function Splitter({
 
   const clamped = (w: number) => Math.min(max, Math.max(min, Math.round(w)));
 
-  function commit(w: number) {
-    onChange(clamped(w));
-  }
-
   return (
     <div
       role="separator"
@@ -81,6 +76,7 @@ export default function Splitter({
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
+      aria-valuetext={`${value} pixels wide`}
       tabIndex={0}
       title="Drag to resize · double-click to reset"
       onPointerDown={(e) => {
@@ -96,7 +92,7 @@ export default function Splitter({
         // leftward one. Magnitude always maps 1:1 to the pointer.
         const delta =
           side === "right" ? e.clientX - drag.current.startX : drag.current.startX - e.clientX;
-        commit(drag.current.startWidth + delta);
+        onChange(clamped(drag.current.startWidth + delta));
       }}
       onPointerUp={() => {
         if (!drag.current) return;
@@ -110,7 +106,10 @@ export default function Splitter({
         onActiveChange(false);
         onCommit();
       }}
-      onDoubleClick={() => onReset()}
+      onDoubleClick={() => {
+        onChange(def);
+        onCommit();
+      }}
       onKeyDown={(e) => {
         const grow = side === "right" ? "ArrowRight" : "ArrowLeft";
         const shrink = side === "right" ? "ArrowLeft" : "ArrowRight";
@@ -122,24 +121,23 @@ export default function Splitter({
         else if (e.key === "End") next = max;
         if (next === null) return;
         e.preventDefault();
-        commit(next);
+        onChange(clamped(next));
         onCommit(); // keyboard edits settle immediately → persist
       }}
       className={cn(
-        // 8px hit strip at the panel edge (44px+ tall): invisible at rest,
-        // a hairline grip on hover, accent line while dragging/focused.
-        "absolute inset-y-0 z-10 w-2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-line/40 focus-visible:bg-line/40 focus-visible:outline-none",
+        // 8px hit strip at the panel edge (full height): transparent at
+        // rest, a faint tint on hover/keyboard focus; the accent rail
+        // lighting up on the panel edge is the focus + drag indicator.
+        "group absolute inset-y-0 z-10 w-2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-line/40 focus-visible:bg-line/40 focus-visible:outline-none",
         side === "right" ? "right-0" : "left-0",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-1/2 h-14 w-0.5 -translate-y-1/2 rounded-full transition-colors",
-          side === "right" ? "right-0.5" : "left-0.5",
-          active
-            ? "bg-accent"
-            : "bg-line-strong opacity-0 group-hover:opacity-0 peer-hover:opacity-0", // keeps the rest state hairline-free
+          "absolute inset-y-0 w-px transition-colors",
+          side === "right" ? "right-0" : "left-0",
+          "bg-transparent group-hover:bg-line-strong group-focus-visible:bg-accent group-active:bg-accent",
         )}
       />
     </div>

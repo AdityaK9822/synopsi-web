@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Sun, Moon, Trash2 } from "lucide-react";
+import { Sun, Moon, Trash2, Zap } from "lucide-react";
 
 import DialogShell from "@/components/shell/DialogShell";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,15 +29,73 @@ export default function SettingsDialog({
   historyCount: number;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const auth = useAuth();
+  const used = auth.overview?.used;
+  const limits = auth.overview?.limits;
+  const usedGens = used?.generations ?? 0;
+  const usedDls = used?.downloads ?? 0;
+  const genLimit = limits?.generationsPerMonth;
+  const dlLimit = limits?.downloadsPerMonth;
 
   return (
     <DialogShell
       open={open}
       onClose={onClose}
       title="Settings"
-      subtitle="Everything in the app: appearance and your local chat history."
+      subtitle="Appearance and your local chat history."
     >
       <div className="flex flex-col gap-6">
+        <section aria-labelledby="set-usage">
+          <h3 id="set-usage" className="text-sm font-semibold">
+            Usage this 5-hour window
+          </h3>
+          <p className="mt-1 text-sm text-muted">
+            {auth.isGuest
+              ? "You're a guest — sign in with Google to get 5 generations, 3 downloads and quiz features."
+              : auth.gatesLive
+                ? "Server-tracked against your account."
+                : "Generations aren't tracked until server auth is configured."}
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-line bg-card p-3 text-xs">
+            <div>
+              <p className="text-muted">Generations</p>
+              <p className="mt-1 font-bold text-ink tabular-nums">
+                {usedGens}
+                <span className="font-normal text-muted">
+                  {" "}
+                  / {genLimit ? genLimit : "∞"}
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-muted">Downloads</p>
+              <p className="mt-1 font-bold text-ink tabular-nums">
+                {usedDls}
+                <span className="font-normal text-muted">
+                  {" "}
+                  / {dlLimit === null ? "∞" : dlLimit ?? 0}
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-muted">Tier</p>
+              <p className="mt-1 font-bold text-ink capitalize">{auth.tier}</p>
+            </div>
+          </div>
+          {auth.overview?.resetAt &&
+            !isNaN(new Date(auth.overview.resetAt).getTime()) && (
+              <p className="mt-2 text-xs text-muted">
+                Resets in{" "}
+                {Math.max(0, Math.round((new Date(auth.overview.resetAt).getTime() - Date.now()) / 60000))}{" "}
+                min · at{" "}
+                {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(
+                  new Date(auth.overview.resetAt),
+                )}
+                .
+              </p>
+            )}
+        </section>
+
         <section aria-labelledby="set-theme">
           <h3 id="set-theme" className="text-sm font-semibold">
             Appearance

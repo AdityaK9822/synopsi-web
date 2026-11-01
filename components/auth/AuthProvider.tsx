@@ -37,6 +37,7 @@ export type AccountOverview = {
   limits: TierLimits;
   period: string;
   used: { generations: number; downloads: number };
+  resetAt?: string;
 };
 
 type AuthState = {
@@ -130,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false);
         });
       }
-    }, 400);
+    }, 2000);
     return () => {
       cancelled = true;
       clearTimeout(timer);

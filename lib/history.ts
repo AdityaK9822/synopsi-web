@@ -12,19 +12,13 @@ import type { StudyPack } from "@/lib/types";
 const KEY = "synopsi-history-v1";
 export const MAX_SESSIONS = 30;
 
-/* -------------------------------------------------------- persistence ctrl */
+/* --------------------------------------------------------- account scoping */
 
-/**
- * Persistence mode, driven by the auth tier:
- *   "local"  — persist to localStorage (signed-in Google users)
- *   "none"   — in-memory only; a refresh is a clean slate (guests)
- * The mode is set from AuthProvider once the server-verified tier is
- * known; loaded history also disappears for guests (call clearIfNone).
- */
-let persistenceMode: "none" | "local" = "none";
-
-export function setHistoryPersistence(mode: "none" | "local"): void {
-  persistenceMode = mode;
+/** History is stored per-account so one sign-in never sees another's chats.
+ *  `ownerId` is the Firebase UID of the signed-in (non-anonymous) user; for
+ *  guests (`null`) everything stays in memory only. */
+function storageKey(ownerId: string): string {
+  return `synopsi-history-v1:${ownerId}`;
 }
 
 /* Snapshot message shapes (localStorage-safe, no File objects). */
@@ -70,10 +64,10 @@ export interface SessionSnapshot {
 
 /* ----------------------------------------------------------- storage I/O */
 
-export function loadSessions(): SessionSnapshot[] {
-  if (persistenceMode === "none") return []; // guests never reload history
+export function loadSessions(ownerId: string | null): SessionSnapshot[] {
+  if (!ownerId) return []; // guests never reload history
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey(ownerId));
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -86,10 +80,10 @@ export function loadSessions(): SessionSnapshot[] {
   }
 }
 
-export function storeSessions(all: SessionSnapshot[]) {
-  if (persistenceMode === "none") return; // guests: refresh wipes everything
+export function storeSessions(all: SessionSnapshot[], ownerId: string | null) {
+  if (!ownerId) return; // guests: refresh wipes everything
   try {
-    localStorage.setItem(KEY, JSON.stringify(all.slice(0, MAX_SESSIONS)));
+    localStorage.setItem(storageKey(ownerId), JSON.stringify(all.slice(0, MAX_SESSIONS)));
   } catch {
     /* private mode / full quota: history simply will not persist */
   }

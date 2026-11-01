@@ -322,7 +322,7 @@ export default function Composer({
       </div>
 
       <p className="mt-2 px-1 text-center text-xs text-muted">
-        Enter to send · Shift+Enter for a new line · answers come strictly from your notes
+        Enter to send · Shift+Enter for a new line
       </p>
     </form>
   );

@@ -16,7 +16,7 @@
 
 import { AdminNotConfiguredError, adminDb } from "@/lib/server/firebase-admin";
 import type { AuthUser } from "@/lib/server/auth";
-import { TIER_LIMITS, currentPeriod, type Tier, type TierLimits } from "@/lib/plans";
+import { TIER_LIMITS, ADMIN_EMAILS, currentPeriod, periodEnd, type Tier, type TierLimits } from "@/lib/plans";
 
 export class QuotaExceededError extends Error {
   readonly kind: "gen" | "dl";
@@ -59,6 +59,7 @@ export async function upsertUserDoc(user: AuthUser): Promise<void> {
 
 /** Server-side tier derivation from the verified session + profile doc. */
 export async function getUserTier(user: AuthUser): Promise<{ tier: Tier; plan: string }> {
+  if (user.email && ADMIN_EMAILS.includes(user.email)) return { tier: "premium", plan: "premium" };
   if (user.provider === "anonymous") return { tier: "guest", plan: "guest" };
   const snap = await usersCollection().doc(user.uid).get();
   const plan = snap.exists ? (snap.get("plan") as string) : "free";
@@ -79,7 +80,11 @@ export async function getUsage(uid: string): Promise<{ gen: number; dl: number }
 /** Full account overview for the /api/auth/me surface. */
 export async function getAccountOverview(user: AuthUser, tier: Tier, plan: string) {
   const { gen, dl } = await getUsage(user.uid);
-  const limits: TierLimits = TIER_LIMITS[tier];
+  const isAdmin = Boolean(user.email && ADMIN_EMAILS.includes(user.email));
+  const limits: TierLimits = isAdmin
+    ? { ...TIER_LIMITS.premium, generationsPerMonth: 100000, downloadsPerMonth: null }
+    : TIER_LIMITS[tier];
+  const resetAt = periodEnd().toISOString();
   return {
     user,
     tier,
@@ -87,6 +92,7 @@ export async function getAccountOverview(user: AuthUser, tier: Tier, plan: strin
     limits,
     period: currentPeriod(),
     used: { generations: gen, downloads: dl },
+    resetAt,
   };
 }
 

@@ -19,7 +19,7 @@ import type { NextRequest } from "next/server";
 import { getSessionUser, type AuthUser } from "@/lib/server/auth";
 import { AdminNotConfiguredError } from "@/lib/server/firebase-admin";
 import { getUserTier, QuotaExceededError } from "@/lib/server/usage";
-import { TIER_LIMITS, type Tier, type TierLimits } from "@/lib/plans";
+import { TIER_LIMITS, ADMIN_EMAILS, type Tier, type TierLimits } from "@/lib/plans";
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -57,7 +57,12 @@ export async function gateRequest(req: NextRequest): Promise<Gate> {
   if (!user) throw new UnauthorizedError();
 
   const { tier, plan } = await getUserTier(user);
-  return { user, tier, plan, limits: TIER_LIMITS[tier] };
+  const isAdmin = Boolean(user.email && ADMIN_EMAILS.includes(user.email));
+  const baseLimits = TIER_LIMITS[tier];
+  const limits = isAdmin
+    ? { ...baseLimits, generationsPerMonth: 100000, downloadsPerMonth: null }
+    : baseLimits;
+  return { user, tier: isAdmin ? "premium" : tier, plan: isAdmin ? "premium" : plan, limits };
 }
 
 /** Map a typed gate error to the HTTP status + JSON body (402/401/403/503). */

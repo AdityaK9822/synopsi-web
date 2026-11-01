@@ -15,6 +15,7 @@ import {
   UnsupportedFileError,
 } from "@/lib/pipeline";
 import { ForbiddenError, gateErrorResponse, gateRequest } from "@/lib/server/gate";
+import { ADMIN_EMAILS } from "@/lib/plans";
 import {
   assertWithinQuota,
   consumeTierUse,
@@ -103,7 +104,8 @@ export async function POST(req: NextRequest) {
     let gate: import("@/lib/server/gate").Gate | null = null;
     try {
       gate = await gateRequest(req);
-      await assertWithinQuota(gate.user.uid, gate.tier, "gen");
+      const isAdmin = Boolean(gate.user.email && ADMIN_EMAILS.includes(gate.user.email));
+      if (!isAdmin) await assertWithinQuota(gate.user.uid, gate.tier, "gen");
       if (questionsEnabled && gate.limits.maxQuestions === 0) {
         throw new ForbiddenError(
           "Revision questions are not part of this tier — sign in (free) unlocks them.",
@@ -150,10 +152,13 @@ export async function POST(req: NextRequest) {
 
     // Count the generation — success-path only, so failed runs stay free.
     if (gate) {
-      try {
-        await consumeTierUse(gate.user.uid, "gen");
-      } catch (exc) {
-        console.warn("[generate] usage accounting failed:", exc);
+      const isAdmin = Boolean(gate.user.email && ADMIN_EMAILS.includes(gate.user.email));
+      if (!isAdmin) {
+        try {
+          await consumeTierUse(gate.user.uid, "gen");
+        } catch (exc) {
+          console.warn("[generate] usage accounting failed:", exc);
+        }
       }
     }
 

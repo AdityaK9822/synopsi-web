@@ -243,3 +243,35 @@ body {
     transition: none;
   }
 }
+
+/* Scrollbars, ditched: minimal gutters with no track paint, and a thumb
+   that only paints while the scroller is in use (pointer over it, or
+   keyboard focus inside it). The gutter keeps its width at rest, so
+   content never reflows when the thumb appears. */
+:root {
+  /* Standard pair (Firefox; the webkit pseudos below win in Chrome). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--faint) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent; /* shrinks the visible pill to 4px */
+  border-radius: 9999px;
+  background-color: transparent; /* invisible at rest = auto-hidden */
+  background-clip: content-box;
+}
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background-color: var(--line-strong);
+}
+*:hover::-webkit-scrollbar-thumb:hover,
+*:hover::-webkit-scrollbar-thumb:active {
+  background-color: var(--muted);
+}

@@ -29,6 +29,11 @@ export default function HelpDialog({
             <li className="flex items-center gap-2">
               <kbd className={KBD}>Shift + Enter</kbd> new line
             </li>
+            <li className="flex items-center gap-2">
+              <kbd className={KBD}>⌘ / Ctrl</kbd>
+              <kbd className={KBD}>B</kbd>
+              show / hide the chat-history panel
+            </li>
           </ul>
         </section>
         <section aria-label="Accepted inputs">
