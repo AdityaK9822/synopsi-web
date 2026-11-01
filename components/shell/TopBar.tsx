@@ -50,7 +50,7 @@ export default function TopBar({
   onOpenHelp: () => void;
   onOpenSettings: () => void;
 }) {
-  const { user, isGuest, overview, signInWithGoogle } = useAuth();
+  const { user, isGuest, overview, signInWithGoogle, signOut } = useAuth();
   const displayName =
     (!isGuest && (overview?.user?.name || user?.displayName || user?.email)) ||
     (isGuest ? "Guest user" : "Account");
@@ -147,10 +147,10 @@ export default function TopBar({
         ) : (
           <button
             type="button"
-            onClick={onOpenAccount}
+            onClick={() => void signOut()}
             className="ml-1 hidden h-9 items-center rounded-full border border-line bg-card px-4 text-sm font-bold text-ink transition-[border-color,background-color] hover:border-line-strong hover:bg-line/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none md:inline-flex"
           >
-            Account
+            Sign out
           </button>
         )}
       </div>
