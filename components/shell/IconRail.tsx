@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleHelp, Settings } from "lucide-react";
+import { Plus, CircleHelp, Settings } from "lucide-react";
 
 import { Logomark } from "@/components/brand/Logo";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -64,6 +64,14 @@ export default function IconRail({
       </button>
 
       <nav aria-label="Primary" className="flex flex-1 flex-col items-center gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onNewChat}
+          aria-label="New chat"
+          className={RAIL_BTN}
+        >
+          <Plus className="size-5" strokeWidth={1.75} aria-hidden="true" />
+        </button>
         <button
           type="button"
           onClick={onOpenHelp}
