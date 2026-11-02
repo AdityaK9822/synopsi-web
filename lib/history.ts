@@ -87,6 +87,8 @@ export function storeSessions(all: SessionSnapshot[], ownerId: string | null) {
   } catch {
     /* private mode / full quota: history simply will not persist */
   }
+  // Mirror to the user's account (Firestore) so it survives across devices.
+  persistCloudSessions(all);
 }
 
 /* --------------------------------------------------------- id + identity */
@@ -113,4 +115,39 @@ export function deriveTitle(msgs: { kind: string; files?: SnapshotUserMsg["files
     }
   }
   return "Pasted notes";
+}
+
+/* ------------------------------------------------------------- cloud sync */
+
+let cloudSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function persistCloudSessions(all: SessionSnapshot[], delay = 800): void {
+  if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(() => {
+    cloudSaveTimer = null;
+    void fetch("/api/history", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions: all.slice(0, MAX_SESSIONS) }),
+    }).catch(() => {});
+  }, delay);
+}
+
+export async function fetchCloudSessions(): Promise<SessionSnapshot[] | null> {
+  try {
+    const res = await fetch("/api/history", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => ({}))) as { sessions?: unknown };
+    if (!Array.isArray(data.sessions)) return [];
+    return data.sessions.filter(
+      (s): s is SessionSnapshot =>
+        !!s &&
+        typeof s === "object" &&
+        "id" in s &&
+        "title" in s &&
+        "messages" in s,
+    );
+  } catch {
+    return null;
+  }
 }

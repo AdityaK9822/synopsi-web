@@ -28,9 +28,11 @@ import Splitter from "@/components/shell/Splitter";
 import { Logomark } from "@/components/brand/Logo";
 import {
   deriveTitle,
+  fetchCloudSessions,
   loadSessions,
   MAX_SESSIONS,
   newSessionId,
+  persistCloudSessions,
   storeSessions,
   type SessionSnapshot,
   type SnapshotMsg,
@@ -131,11 +133,12 @@ const INPUT_KINDS = [
 
 /* Collapsible + resizable panel prefs. Defaults are SSR-safe (the first
    client render must match the server); persisted values apply after mount.
-   v3: a slimmer default history sidebar (244px) — v2's 272 still read wide. */
-const UI_KEY = "synopsi-ui-v3";
-const HISTORY_MIN = 208;
+   v4: a slimmer history sidebar (208px default, 192px floor) — v3's 244
+   still read thick next to the 56px icon rail. */
+const UI_KEY = "synopsi-ui-v4";
+const HISTORY_MIN = 192;
 const HISTORY_MAX = 400;
-const HISTORY_DEF = 244;
+const HISTORY_DEF = 208;
 const OVERVIEW_MIN = 200;
 const OVERVIEW_MAX = 320;
 const OVERVIEW_DEF = 256;
@@ -341,16 +344,13 @@ function HomeInner() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  /* History persistence is a TIER right, not a default: guests get an
-     in-memory session only (refresh = clean slate), Google users get
-     localStorage. Runs once the auth state has settled; the eventual
-     check-in only reloads persisted history once. */
+  /* History persistence: guests = memory only; signed-in users get
+     cloud-backed (Firestore) history that survives across devices. */
   const { user, isGuest, loading, refresh, tierLimits } = useAuth();
   /* Owner-scoped persistence: never let one account see another's chats. */
   useEffect(() => {
     if (loading) return;
     const ownerId = !isGuest && user ? user.uid : null;
-    // never allow results from another account's in-flight run to land here
     for (const e of runsRef.current.values()) {
       e.cancelled = true;
       try { e.controller.abort(); } catch { /* already aborted */ }
@@ -359,12 +359,29 @@ function HomeInner() {
     setBusyIds(new Set());
     droppedThreadsRef.current.clear();
     ownerUidRef.current = ownerId;
-    // New account / guest session: clear what the previous account wrote to
-    // the screen and load only that account's persisted chats.
+    sessionsRef.current = [];
     setMessages([]);
     setActiveId(null);
     setSessionCreatedAt(null);
-    setSessions(loadSessions(ownerId));
+    setSessions([]);
+    if (!ownerId) return;
+    let cancelled = false;
+    (async () => {
+      let list = await fetchCloudSessions();
+      if (cancelled) return;
+      if (list === null) list = loadSessions(ownerId);
+      if (list.length === 0) {
+        const local = loadSessions(ownerId);
+        if (local.length) {
+          list = local;
+          persistCloudSessions(local, 0);
+        }
+      }
+      if (cancelled) return;
+      sessionsRef.current = list;
+      setSessions(list);
+    })();
+    return () => { cancelled = true; };
   }, [loading, isGuest, user?.uid]);
 
   useEffect(() => {
