@@ -8,7 +8,6 @@ import {
   List,
   ScanLine,
   TriangleAlert,
-  X,
 } from "lucide-react";
 
 import Composer from "@/components/chat/Composer";
@@ -21,6 +20,8 @@ import HelpDialog from "@/components/shell/HelpDialog";
 import SettingsDialog from "@/components/shell/SettingsDialog";
 import IconRail from "@/components/shell/IconRail";
 import HistoryPanel from "@/components/shell/HistoryPanel";
+import HistoryDrawer from "@/components/shell/HistoryDrawer";
+import DeleteChatDialog from "@/components/shell/DeleteChatDialog";
 import OverviewRail from "@/components/shell/OverviewRail";
 import TopBar from "@/components/shell/TopBar";
 import Splitter from "@/components/shell/Splitter";
@@ -117,7 +118,7 @@ function Elapsed({ startedAt }: { startedAt: number }) {
 }
 
 const RETRY_CHIP =
-  "mt-3 inline-flex h-9 items-center rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition [transition-property:background-color,border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
+  "mt-3 inline-flex h-11 items-center rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition [transition-property:background-color,border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none sm:h-9";
 
 /** The hero's input-kind chips: a static inventory of what it accepts —
  *  informational (spans, not buttons), matching the tagline's keywords. */
@@ -293,7 +294,6 @@ function HomeInner() {
   const namedSetRef = useRef(new Set<string>()); // threads that queued a title
   const pendingTitleRef = useRef(new Map<string, { excerpt: string }>()); // per-thread
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
-  const dirty = useRef(false);
   /* Auto-naming state lives in `pendingTitleRef`/`namedSetRef` above (now
      per-thread); the old scalar refs are no longer used. */
 
@@ -302,6 +302,11 @@ function HomeInner() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  /** A chat the user asked to delete; the confirm dialog acts on it. The
+      title is kept after closing so the dialog's exit fade never flashes
+      an empty “Delete ""?”. */
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteTitle, setPendingDeleteTitle] = useState("");
   /** Bumped only when the thread content changes identity (open a session,
       new chat, delete-active, clear history) so the hero↔thread swap bridges
       once; never bumped on sends. */
@@ -340,7 +345,7 @@ function HomeInner() {
      in-memory session only (refresh = clean slate), Google users get
      localStorage. Runs once the auth state has settled; the eventual
      check-in only reloads persisted history once. */
-  const { user, tier, isGuest, loading, refresh } = useAuth();
+  const { user, isGuest, loading, refresh, tierLimits } = useAuth();
   /* Owner-scoped persistence: never let one account see another's chats. */
   useEffect(() => {
     if (loading) return;
@@ -484,15 +489,8 @@ function HomeInner() {
     );
   }, [messages]);
 
-  // Escape closes the history drawer (native <dialog> handles its own).
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
+  // Escape closes the history drawer — the native <dialog> behind
+  // HistoryDrawer already handles Escape/cancel (and hands focus back).
 
   // ⌘/Ctrl+B toggles the history panel — lg+ only, where the panel exists;
   // below that history lives in the drawer. The binding installs once and
@@ -677,6 +675,20 @@ function HomeInner() {
     }
   }
 
+  /** Row delete arms a confirmation first: the pack is unrecoverable. */
+  function requestDeleteSession(id: string) {
+    const s = sessionsRef.current.find((x) => x.id === id);
+    if (!s) return;
+    setPendingDeleteTitle(s.title);
+    setPendingDeleteId(s.id);
+  }
+
+  function confirmDeleteSession() {
+    if (!pendingDeleteId) return;
+    deleteSession(pendingDeleteId);
+    setPendingDeleteId(null);
+  }
+
   function clearHistory() {
     for (const [aid] of runsRef.current) {
       const e = runsRef.current.get(aid);
@@ -837,10 +849,24 @@ function HomeInner() {
 
       const res = await fetch("/api/generate", { method: "POST", body: form, signal: controller.signal });
       const data = (await res.json().catch(() => null)) as
-        | (ApiResult & { error?: string })
+        | (ApiResult & { error?: string; code?: string })
         | null;
 
       if (!res.ok) {
+        // A platform-level 413 arrives as HTML, so `data` is null — recognise
+        // it by status and say what actually happened.
+        const tooLargeMessage =
+          res.status === 413 || data?.code === "file_too_large"
+            ? "That upload is too large for the server. Split the PDF into smaller parts, or paste the text instead."
+            : null;
+        // Server quota copy is engineering-shaped ("3 gen for 2026-11-02-3");
+        // restate it as an instruction, tailored to the tier that hit it.
+        const quotaMessage =
+          data?.code === "gen_quota_exceeded"
+            ? isGuest
+              ? `You’ve used all ${tierLimits().generationsPerMonth} guest generations for this window. Sign in with Google for 5 every 5 hours.`
+              : `You’ve used all ${tierLimits().generationsPerMonth} generations for this window. They reset when the 5-hour window rolls over.`
+            : null;
         resolveTurn((msgs) =>
           msgs.map((x) =>
             x.id === assistantId
@@ -848,6 +874,8 @@ function HomeInner() {
                   ...x,
                   status: "error" as const,
                   message:
+                    tooLargeMessage ??
+                    quotaMessage ??
                     data?.error ??
                     "Something went wrong. Check your connection and try again.",
                   retry,
@@ -881,12 +909,13 @@ function HomeInner() {
               setPanelPrefs({ overviewVisible: true });
               if (document.activeElement?.id === "synopsi-overview-dock") {
                 requestAnimationFrame(() =>
-                  document.getElementById("synopsi-overview-panel")?.focus({
-                    preventScroll: true,
-                  }),
+                  document
+                    .getElementById("synopsi-overview-panel")
+                    ?.focus({ preventScroll: true }),
                 );
               }
             }
+            void refresh();
           },
         );
       }
@@ -982,8 +1011,7 @@ function HomeInner() {
             activeId={activeId}
             generatingIds={Array.from(busyIds)}
             onSelect={openSession}
-            onDelete={deleteSession}
-            onCollapse={toggleHistoryPanel}
+            onDelete={requestDeleteSession}
           />
         </div>
         {ui.historyVisible && (
@@ -1026,7 +1054,16 @@ function HomeInner() {
                   key={`hero-${shellEpoch}`}
                   className="ui-enter mx-auto w-full max-w-3xl px-4 py-10 text-center sm:px-8"
                 >
-                  <Logomark className="mx-auto size-14" />
+                  {/* Brand lockup: logomark + wordmark read as one centred unit
+                      so the product name is the first thing on the page. The
+                      wordmark uses the project's display leading (1.15) and
+                      tracking-tight scale rather than body rhythm. */}
+                  <div className="flex items-center justify-center gap-3">
+                    <Logomark className="size-12 sm:size-14" />
+                    <span className="text-2xl leading-[1.15] font-bold tracking-tight text-ink sm:text-3xl">
+                      Synopsi
+                    </span>
+                  </div>
                   {/* Dynamic tagline: the leading sentence is static, the keyword is
                       typed/cycled — reduced-motion users get a plain fade-free swap. */}
                   <h1 className="mt-6 text-balance text-2xl font-bold tracking-tight sm:text-4xl">
@@ -1055,15 +1092,19 @@ function HomeInner() {
                   </ul>
                   <p className="mt-2 text-xs text-muted">or a mix of several</p>
 
-                  <p className="mt-5 text-xs text-muted">
-                    gemma4:31b via Ollama Cloud (free tier)
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Try the sample at{" "}
-                    <code className="rounded border border-line bg-card px-1 font-mono text-[0.9em]">
-                      sample_notes/sample_lecture.txt
-                    </code>
-                  </p>
+                  {/* Provenance + sample hint share one caption block: two
+                      12px muted lines, one 24px gap from the chips. */}
+                  <div className="mt-6">
+                    <p className="text-xs text-muted">
+                      gemma4:31b via Ollama Cloud (free tier)
+                    </p>
+                    <p className="mt-1.5 text-xs text-muted">
+                      Try the sample at{" "}
+                      <code className="rounded border border-line bg-card px-1 font-mono text-[0.9em]">
+                        sample_notes/sample_lecture.txt
+                      </code>
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1257,7 +1298,7 @@ function HomeInner() {
                   type="button"
                   onClick={toggleOverviewPanel}
                   title="Show pack overview"
-                  className="absolute right-4 top-4 z-20 hidden items-center gap-2 rounded-full border border-line bg-card py-2 pl-3 pr-3.5 text-sm font-medium text-ink shadow-sm transition-[border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none lg:flex"
+                  className="absolute right-4 top-4 z-20 hidden h-11 items-center gap-2 rounded-full border border-line bg-card pl-3 pr-3.5 text-sm font-medium text-ink shadow-sm transition-[border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none lg:flex"
                 >
                   <Info className="size-4 shrink-0 text-accent" aria-hidden="true" />
                   Overview
@@ -1269,46 +1310,15 @@ function HomeInner() {
       </div>
 
       {/* ----------------------------------------- history drawer (<lg) -------- */}
-      {drawerOpen && (
-        <>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(false)}
-            aria-label="Close chat history"
-            className="fixed inset-0 z-30 cursor-default bg-slate-950/45 lg:hidden"
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Chat history"
-            className="dw-panel fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel shadow-xl lg:hidden"
-          >
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <p className="text-sm font-bold">Chat history</p>
-              <button
-                type="button"
-                onClick={() => setDrawerOpen(false)}
-                aria-label="Close chat history"
-                className="grid size-9 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
-              >
-                <X className="size-4.5" aria-hidden="true" />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              <HistoryPanel
-                sessions={sessions}
-                activeId={activeId}
-                generatingIds={Array.from(busyIds)}
-                onSelect={openSession}
-                onNew={newChat}
-                onDelete={deleteSession}
-                autoFocusSearch
-                searchId="synopsi-search-drawer"
-              />
-            </div>
-          </div>
-        </>
-      )}
+      <HistoryDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        sessions={sessions}
+        activeId={activeId}
+        generatingIds={Array.from(busyIds)}
+        onSelect={openSession}
+        onDelete={requestDeleteSession}
+      />
 
       {/* ------------------------------------------------ in-app dialogs ------ */}
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
@@ -1323,6 +1333,12 @@ function HomeInner() {
         historyCount={sessions.length}
       />
       <AccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} />
+      <DeleteChatDialog
+        open={pendingDeleteId !== null}
+        title={pendingDeleteTitle}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={confirmDeleteSession}
+      />
     </div>
   );
 }
