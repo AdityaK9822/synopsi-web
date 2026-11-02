@@ -81,7 +81,7 @@ export default function HistoryPanel({
       </div>
 
       {/* search */}
-      <div className="px-5 pt-1">
+      <div className="px-5 pt-3">
         <div className="relative">
           <label htmlFor={searchId} className="sr-only">
             Search your chats
@@ -105,17 +105,17 @@ export default function HistoryPanel({
       {/* history list */}
       <ul
         aria-label="Chat history"
-        className="mt-4 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4"
+        className="mt-3 flex-1 space-y-1 overflow-y-auto overscroll-contain px-4 pb-4"
       >
         {sessions.length === 0 ? (
-          <li className="px-4 py-10 text-center">
+          <li className="py-10 text-center">
             <p className="text-sm font-semibold text-ink">No saved chats</p>
             <p className="mt-1 text-xs leading-relaxed text-muted">
               Packs you generate are saved here automatically.
             </p>
           </li>
         ) : visible.length === 0 ? (
-          <li className="px-4 py-10 text-center">
+          <li className="py-10 text-center">
             <p className="text-sm font-semibold text-ink">
               No results for “{query.trim()}”
             </p>
