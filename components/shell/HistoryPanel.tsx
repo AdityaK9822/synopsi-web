@@ -74,14 +74,14 @@ export default function HistoryPanel({
           "y" descender. 1.15 is unitless display leading (1.1–1.2), so the
           wordmark's own box — not an empty line box — sets the header
           height. tracking-tight is the project's display tracking scale. */}
-      <div className="flex h-14 items-center border-b border-line px-5">
+      <div className="flex h-14 items-center border-b border-line px-4">
         <span className="truncate text-2xl leading-[1.15] font-bold tracking-tight">
           Synopsi
         </span>
       </div>
 
       {/* search */}
-      <div className="px-5 pt-3">
+      <div className="px-4 pt-3">
         <div className="relative">
           <label htmlFor={searchId} className="sr-only">
             Search your chats
@@ -203,7 +203,7 @@ export default function HistoryPanel({
 
       {/* supporting card: how to feed it (the design's featured-card slot) */}
       {!tipsDismissed && sessions.length === 0 && (
-        <div className="ui-enter p-5">
+        <div className="ui-enter p-4">
           <div className="rounded-3xl border border-line bg-card p-4">
             <div className="flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-full bg-line/50 text-accent">
