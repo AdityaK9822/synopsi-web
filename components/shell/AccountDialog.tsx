@@ -118,7 +118,7 @@ export default function AccountDialog({
             <div className="rounded-2xl border border-line bg-panel p-3.5 text-sm text-muted">
               <p className="font-semibold text-ink">What a guest gets</p>
               <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                <li>3 study packs this month</li>
+                <li>3 study packs every 5 hours</li>
                 <li>No saved history — a refresh clears everything</li>
                 <li>No fact-check (research) mode, no revision questions, no PDF export</li>
               </ul>
