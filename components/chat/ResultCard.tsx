@@ -74,7 +74,8 @@ function Note({ children }: { children: React.ReactNode }) {
 
 /** Verdict chip styling: text always names the verdict; colour only supports. */
 function verdictClass(verdict: string): string {
-  if (/not supported/i.test(verdict)) return "border-err/40 bg-err-bg text-err";
+  if (/contradict|not supported|wrong/i.test(verdict)) return "border-err/40 bg-err-bg text-err";
+  if (/partly/i.test(verdict)) return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
   if (/supported/i.test(verdict)) return "border-ok/40 bg-ok-bg text-ok";
   return "border-line bg-line/40 text-ink"; // Unclear & anything unparsed stays neutral
 }

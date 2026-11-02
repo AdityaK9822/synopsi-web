@@ -77,12 +77,21 @@ question.`;
 const FACTCHECK_SECTION = `## Fact-Check
 | Claim | Verdict | Where in the notes |
 |-------|---------|--------------------|
-<5 to 10 rows. Each row re-states one specific, concrete claim from YOUR
-Summary or Key Concepts above, condensed to one line. Verdict is EXACTLY one
-of: "Supported", "Partly supported", "Not supported", "Unclear" — judged
-only against the supplied notes, never outside knowledge. "Where in the
-notes" names or short-quotes the exact fragment of the supplied notes
-(a slide line, section or sentence) the verdict comes from.>
+<8 to 15 rows. One row for EVERY concrete claim in your Summary and Key
+Concepts above, plus any claim you detect as wrong, overstated or
+inconsistent between them — be exhaustive, not selective. "Claim" is one
+specific, condensed sentence. Verdict is EXACTLY one of: "Supported",
+"Partly supported", "Not supported", "Contradicted", "Unclear" — judged
+ONLY against the supplied notes, never outside knowledge:
+  - "Contradicted" / "Not supported" = the notes explicitly say something
+    different, or the claim overstates/contradicts what the notes say
+    (FLAG IT — this is the most important verdict to surface).
+"Where in the notes" short-quotes (or names) the exact fragment the
+verdict comes from. "Why" is one short sentence explaining the mismatch
+or, for Supported, why it holds. A row with verdict "Contradicted" MUST
+be flagged clearly so the reader sees the error.
+If two statements in the notes conflict, note it as "Contradicted" and
+quote both sides in "Where in the notes" / "Why".>
 
 ## Sources
 1. [<site or article name>](<https://...>)
@@ -140,9 +149,13 @@ const BASE_RULES = (questionsOn: boolean, quiz: boolean, research: boolean) => {
   }
   if (research) {
     rules.push(
-      `${rules.length + 1}. In the Fact-Check table, judge every claim against the notes ` +
-        'themselves. If a claim cannot be verified from the notes, mark it "Unclear" ' +
-        "rather than guessing from outside knowledge.",
+      `${rules.length + 1}. In the Fact-Check table, perform a THOROUGH review of ` +
+        'EVERY claim in your Summary and Key Concepts (not a spot check). For each, ' +
+        '"Supported", "Partly supported", "Not supported", "Contradicted" (flagged) ' +
+        'or "Unclear" — judged only against the supplied notes, never outside ' +
+        "knowledge. Missing verification is not the same as wrong; flag claims that " +
+        "are unsupported, overstated, or contradict the notes as not-supported / " +
+        'contradicted.',
     );
     rules.push(
       `${rules.length + 1}. End with the Sources section (LAST section): numbered reference ` +

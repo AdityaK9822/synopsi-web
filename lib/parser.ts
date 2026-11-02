@@ -29,7 +29,7 @@ const CORRECT_RE =
   /^[*_\s]*(?:correct\b[^:]*|answer\b[ \*_]*):?[\*_\s]*\(?([A-Da-d])\)?\b/i;
 
 /** Fact-check verdict vocabulary (research mode). */
-const VERDICTS = ["Supported", "Partly supported", "Not supported", "Unclear"];
+const VERDICTS = ["Supported", "Partly supported", "Not supported", "Contradicted", "Unclear"];
 
 function trimSet(s: string, chars: string): string {
   const re = new RegExp(`^[${chars}]+|[${chars}]+$`, "g");
