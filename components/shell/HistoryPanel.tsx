@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, SquarePen, X, Lightbulb } from "lucide-react";
+import { Search, Lightbulb, Trash2 } from "lucide-react";
 
 import { relativeTime } from "@/lib/utils";
 import type { SessionSnapshot } from "@/lib/history";
@@ -36,23 +36,16 @@ export default function HistoryPanel({
   activeId,
   generatingIds,
   onSelect,
-  onNew,
   onDelete,
-  autoFocusSearch,
   searchId = "synopsi-search",
-  onCollapse,
 }: {
   sessions: SessionSnapshot[];
   activeId: string | null;
   generatingIds?: string[];
   onSelect: (id: string) => void;
-  onNew?: () => void;
   onDelete: (id: string) => void;
-  /** The drawer twin sets this when it opens, for keyboard entry. */
-  autoFocusSearch?: boolean;
-  /** Desktop-only collapse control (returns null otherwise). */
-  onCollapse?: () => void;
-  /** DOM id for the search input — drawer twin passes `"synopsi-search-drawer"`. */
+  /** DOM id for the search input — drawer twin passes `"synopsi-search-drawer"`.
+   *  Both panels are mounted at once, so the id must be unique. */
   searchId?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -75,36 +68,34 @@ export default function HistoryPanel({
 
   return (
     <div className="flex h-full w-full flex-col bg-panel">
-      {/* header: brand + new chat (the design's edit affordance) */}
-      <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
-        <span className="truncate text-xl font-bold tracking-tight">Synopsi</span>
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label="New chat"
-          className="grid size-10 shrink-0 place-items-center rounded-[12px] border border-line-strong bg-card text-muted transition [transition-property:color,border-color] hover:border-accent hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
-        >
-          <SquarePen className="size-4.5" strokeWidth={2} aria-hidden="true" />
-        </button>
+      {/* header: brand wordmark. A display setting, not body rhythm: the
+          size step's default leading (1.33 at text-2xl) is for text that
+          wraps, and on a single-line wordmark it adds dead space below the
+          "y" descender. 1.15 is unitless display leading (1.1–1.2), so the
+          wordmark's own box — not an empty line box — sets the header
+          height. tracking-tight is the project's display tracking scale. */}
+      <div className="flex h-14 items-center border-b border-line px-5">
+        <span className="truncate text-2xl leading-[1.15] font-bold tracking-tight">
+          Synopsi
+        </span>
       </div>
 
       {/* search */}
       <div className="px-5 pt-1">
         <div className="relative">
-          <label htmlFor="synopsi-search" className="sr-only">
+          <label htmlFor={searchId} className="sr-only">
             Search your chats
           </label>
           <input
-            id="synopsi-search"
+            id={searchId}
             type="search"
             value={query}
-            autoFocus={autoFocusSearch || undefined}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search anything..."
-            className="h-10 w-full rounded-full border border-line-strong bg-card pl-4 pr-10 text-sm text-ink placeholder:text-faint focus:outline-none focus:outline-2 focus:-outline-offset-2 focus:outline-accent"
+            className="h-11 w-full rounded-full border border-line-strong bg-card pl-4 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:outline-2 focus:-outline-offset-2 focus:outline-accent"
           />
           <Search
-            className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-faint"
+            className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted"
             strokeWidth={2}
             aria-hidden="true"
           />
@@ -117,47 +108,96 @@ export default function HistoryPanel({
         className="mt-4 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4"
       >
         {sessions.length === 0 ? (
-          <li className="px-4 py-8 text-center text-sm text-faint">
-            No chats yet — packs you generate are saved here automatically.
+          <li className="px-4 py-10 text-center">
+            <p className="text-sm font-semibold text-ink">No saved chats</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Packs you generate are saved here automatically.
+            </p>
           </li>
         ) : visible.length === 0 ? (
-          <li className="px-4 py-8 text-center text-sm text-faint">
-            No chats match “{query.trim()}”.
+          <li className="px-4 py-10 text-center">
+            <p className="text-sm font-semibold text-ink">
+              No results for “{query.trim()}”
+            </p>
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="mt-3 rounded-full px-3 py-1.5 text-xs font-bold text-accent transition-[background-color] hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+            >
+              Clear search
+            </button>
           </li>
         ) : (
-          visible.map((s) => (
-            <li key={s.id} className="group relative">
-              <button
-                type="button"
-                aria-current={s.id === activeId ? "page" : undefined}
-                onClick={() => onSelect(s.id)}
-                className={cn(
-                  "flex w-full flex-col gap-0.5 rounded-xl border-l-2 py-2 pl-4 pr-8 text-left transition [transition-property:background-color,border-color,color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:hover:bg-line/40 motion-reduce:transition-none",
-                  s.id === activeId
-                    ? "border-l-accent bg-line/30"
-                    : "border-l-faint hover:border-l-line-strong",
-                )}
-              >
+          visible.map((s) => {
+            const generating = generatingIds?.includes(s.id) ?? false;
+            const active = s.id === activeId;
+            return (
+              <li key={s.id} className="relative">
+                {/* Open-chat marker: the rail's PRESENCE (plus the card
+                    surface and weight) says "this is the open chat", so the
+                    state never leans on hue alone. Inset so it rides the
+                    card's rounded edge. */}
                 <span
+                  aria-hidden="true"
                   className={cn(
-                    "truncate text-sm font-semibold tracking-tight",
-                    s.id === activeId ? "text-ink" : "text-muted group-hover:text-ink",
+                    "pointer-events-none absolute inset-y-2.5 left-0 w-[3px] rounded-full transition-colors motion-reduce:transition-none",
+                    active ? "bg-accent" : "bg-transparent",
+                  )}
+                />
+                <button
+                  type="button"
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onSelect(s.id)}
+                  title={s.title}
+                  className={cn(
+                    "flex w-full flex-col gap-1 rounded-2xl py-2.5 pl-4 pr-11 text-left transition [transition-property:background-color,box-shadow] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none",
+                    active
+                      ? "bg-card shadow-[0_1px_3px_rgb(15_23_42/0.08)]"
+                      : "hover:bg-line/50",
                   )}
                 >
-                  {s.title}
-                </span>
-                <span className="truncate text-xs font-medium text-faint">{sessionMeta(s)}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(s.id)}
-                aria-label={`Delete chat ${s.title}`}
-                className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-lg text-faint opacity-100 transition-[opacity,color] focus-visible:text-err focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100 hover:text-err enabled:motion-safe:active:scale-[0.94] motion-reduce:transition-none"
-              >
-                <X className="size-3.5" aria-hidden="true" />
-              </button>
-            </li>
-          ))
+                  {/* Two lines instead of one: most generated titles fit
+                      whole, and the title attribute + the opened chat's
+                      breadcrumb carry any that still clip. */}
+                  <span
+                    className={cn(
+                      "line-clamp-2 text-sm tracking-tight text-ink",
+                      active ? "font-bold" : "font-semibold",
+                    )}
+                  >
+                    {s.title}
+                  </span>
+                  {generating ? (
+                    // Background generation: the sidebar is the only place
+                    // this is visible, so the row names the state in words.
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-accent">
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent motion-reduce:animate-none"
+                      />
+                      <span className="truncate">Generating…</span>
+                    </span>
+                  ) : (
+                    <span className="truncate text-xs font-medium text-muted">
+                      {sessionMeta(s)}
+                    </span>
+                  )}
+                </button>
+                {/* Destructive control: always visible (touch has no hover
+                    to reveal it), 36px hit area, and the danger surface is
+                    reserved for this action alone. Confirming the delete is
+                    the page's job — this only arms it. */}
+                <button
+                  type="button"
+                  onClick={() => onDelete(s.id)}
+                  aria-label={`Delete chat ${s.title}`}
+                  className="absolute right-1.5 top-1.5 grid size-9 place-items-center rounded-xl text-muted transition [transition-property:color,background-color] hover:bg-err-bg hover:text-err focus-visible:bg-err-bg focus-visible:text-err focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+                >
+                  <Trash2 className="size-4" strokeWidth={2} aria-hidden="true" />
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
 
