@@ -140,13 +140,13 @@ export default function HistoryPanel({
               >
                 <span
                   className={cn(
-                    "truncate text-sm font-medium",
+                    "truncate text-sm font-semibold tracking-tight",
                     s.id === activeId ? "text-ink" : "text-muted group-hover:text-ink",
                   )}
                 >
                   {s.title}
                 </span>
-                <span className="truncate text-xs text-faint">{sessionMeta(s)}</span>
+                <span className="truncate text-xs font-medium text-faint">{sessionMeta(s)}</span>
               </button>
               <button
                 type="button"
