@@ -1,31 +1,88 @@
-# My Prompts — Synopsi session
+# My Prompts
 
-## Exact (verbatim, in order)
+1. "Every chat is searchable — look one up by title, by an attached file, or by the source file a pack came from."
 
-1. `once done push this to github and update on vercel`
+Improve its styling the emoji and text dont have have enough space to display sentences properly since I have shrunken the sidebar each line one has 1 word at that size either change is position or just remove it
 
-2. `Push the entire code to github and then update changes on vercel`
+2. When I send Prompt to in a new window, as soon as I click send add it in history so that while its generating if I change to previous chats it should generate in background and I should be able to naviagte there
 
-3. `Create more sample notes atleast 7 and make them a little detailed`
+3. As a guest user it should allow me 3 generations but its not doing that
 
-4. `After every API request is amde update the usage and once logged in remove the account (button) in top right only keep the log in once logged in it should disappear`
+4. 1. 3 gens/month change to 3 gens / 5 hours for free tier
 
-5. `Change this to What a guest gets`
+2. Also Give me a log in which has full access, simply give me a admin access on asukathreads@gmail.com which has unlimited access to all features
 
-   3 study packs every 5 hours
-   No saved history — a refresh clears everything
-   No fact-check (research) mode, no revision questions, no PDF export
+3. New tier system:
 
-6. `Give me top best prompts which I gave you from this session`
+- Guest tier: 3 gens/5hours , nothing else no downloads
+- Logged in: 5 gens/5 hours,3 downloads/5hour Quiz and questions features(10 questions) but no research feature
+- Premium: 100 gens/5hours, unlimited downloads, Quiz with Max questions and Research feature
 
-7. `'/Users/aditya/Coding/AI Tools and Prompt Engineering (Mini Project)/My_prompts.md', add my exact prompts to this file`
+5. I got a VERY CRITICAL bug,
 
-## Earlier in the session (reconstructed — pre-checkpoint, not word-for-word)
+I just logged in from one account and then ran some generations and then signed out
 
-8. "We are ditching render" — Vercel only.
+then logged in with other account but the chats from 1st account stayed in second account,
 
-9. "Just remove that logo, sorry." (reversal of the rose-toned Logomark swap)
+6. Follow the Margin of top bar in side bar also, make it continously
 
-10. Screenshot of the sidebar header + top bar — "patch all three" alignment mismatches.
+7. only keep the New chat "+" icon in left most vertical bar
 
-11. Tier limits: guest 3 gens/mo (no history, no research, no questions/quiz, no downloads), free 3 gens + 5 downloads/mo (no research, ≤10 questions), premium 300 gens, unlimited downloads, research, ≤20 questions.
+8. Change styling of Chat titles on chat history
+
+9. As soon as user makes generation update it in quota
+
+10. After following the margin some elements look odd align them properly, @better-layout
+
+@app/layout.tsx
+
+Dont bring back the new chat button in side bar
+
+only keep it in left most vertical bar
+
+11. In the first landing page Add the Web App name right nxt to the Logo, user must see it ass soon as user visits the website
+
+12. add a pdf parse, to accept pdf as input to llm
+
+13. Why no OCR, Use some prebuilt tools which will convert pdf into .md and then send it to llm
+
+14. Gemma4 model can natively read images so why have you restrictly that feature here
+
+15. > Lacunas:
+    >
+    > - You added templates but to animations or accessibility features
+    > for ex:
+    > - the sidebars arent collapsible
+    > - sidebars are not resizeable
+    >
+    >
+    >
+    >
+    > Step 1:
+    >
+    > Use @find-animation-opportunities to find oppurtunites and use @better-interface to Design it
+    >
+    > Step 2:
+    >
+    > after Step 1 is done review it using @design-review
+    >
+    > Step 3:
+    >
+    > Iterate the review from step 2 into step 1 and improve until you land on a final product
+
+16. > where is the overview panel??
+    > also I can see that there are many buttons repeating, for exam there are 2 start new chats,
+    >
+    > 2 "i" buttons for"how to use" one is file and why is the collapse/expand sidebar button in top header?? use the logo in sider bar to collapse and open
+    >
+    > things to do:
+    > improve these changes suggested
+    > the side bar is too thick or wide reduce its thickness
+
+17. > I didnt mean to use the logo as icon for collapse/explain i meant when the sidebar is collapsed and the logo is clicked it will expand and inside it the collapse is already present
+
+18. Give me top best prompts which I gave you from this session
+
+19. '/Users/aditya/Coding/AI Tools and Prompt Engineering (Mini Project)/My_prompts.md', add my exact prompts to this file
+
+20. '/Users/aditya/Coding/AI Tools and Prompt Engineering (Mini Project)/My_prompts.md' dont create just add

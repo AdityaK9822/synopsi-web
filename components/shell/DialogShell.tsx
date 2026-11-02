@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -27,6 +27,9 @@ export default function DialogShell({
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement | null>(null);
+  // Every mounted dialog must own a unique title id: all three are in the
+  // DOM at once, and a shared id makes two of them announce the wrong name.
+  const titleId = useId();
 
   useEffect(() => {
     const dlg = ref.current;
@@ -43,7 +46,7 @@ export default function DialogShell({
         // Click on the element itself == outside the content box == backdrop.
         if (e.target === ref.current) onClose();
       }}
-      aria-labelledby="dlg-title"
+      aria-labelledby={titleId}
       className={cn(
         "dlg m-auto w-[calc(100%-2rem)] max-w-md rounded-3xl border border-line bg-card p-6 text-ink shadow-xl",
         className,
@@ -51,7 +54,7 @@ export default function DialogShell({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 id="dlg-title" className="text-lg font-bold tracking-tight">
+          <h2 id={titleId} className="text-lg font-bold tracking-tight">
             {title}
           </h2>
           {subtitle && <p className="mt-1 text-sm leading-relaxed text-muted">{subtitle}</p>}
@@ -61,7 +64,7 @@ export default function DialogShell({
           onClick={onClose}
           aria-label="Close dialog"
           autoFocus={open}
-          className="grid size-9 shrink-0 place-items-center rounded-full text-muted transition-[color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+          className="grid size-11 shrink-0 place-items-center rounded-full text-muted transition-[color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
         >
           <X className="size-4.5" aria-hidden="true" />
         </button>

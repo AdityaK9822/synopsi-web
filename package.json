@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.1.0",
+    "@opendocsg/pdf2md": "^0.3.5",
     "clsx": "^2.1.1",
     "firebase": "^13.1.0",
     "firebase-admin": "^14.5.0",
@@ -21,6 +23,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.7.0",
+    "tesseract.js": "^7.0.0",
     "unpdf": "^2.1.0"
   },
   "devDependencies": {

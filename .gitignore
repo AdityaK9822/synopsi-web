@@ -47,3 +47,7 @@ next-env.d.ts
 
 # commit the example file (contains no secrets)
 !.env.local.example
+
+# Tesseract OCR language cache (downloaded at runtime)
+*.traineddata
+*.traineddata.gz

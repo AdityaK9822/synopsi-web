@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { ArrowUp, LoaderCircle, Lock, Paperclip, TriangleAlert, X } from "lucide-react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, minutesUntil } from "@/lib/utils";
 
 const QUESTION_COUNTS = [5, 8, 10, 12, 15, 20] as const;
 
@@ -41,13 +41,31 @@ export interface ComposerProps {
  * Honouring tier unlocks: guests (no questions/quiz/research), free
  * (questions ≤10, no research), premium (all). Display-only gating —
  * the server remains the authority; this just prevents dead-end errors.
+ *
+ * The generation allowance is read from the SERVER overview (usage is
+ * refreshed after every request), so the remaining count and the
+ * exhausted state can never disagree with the quota the API enforces.
  */
 function useTierUnlocks() {
-  const { tier, tierLimits } = useAuth();
+  const { tier, tierLimits, overview, signInWithGoogle } = useAuth();
   const limits = tierLimits();
   const questionsAllowed = limits.maxQuestions > 0 && tier !== "guest";
   const counts = QUESTION_COUNTS.filter((n) => n <= limits.maxQuestions);
-  return { tier, questionsAllowed, researchAllowed: limits.research, counts };
+  const limit = limits.generationsPerMonth;
+  const used = overview?.used.generations ?? 0;
+  // null until the server has reported usage — unknown is not "none left".
+  const remaining = overview ? Math.max(0, limit - used) : null;
+  return {
+    tier,
+    questionsAllowed,
+    researchAllowed: limits.research,
+    counts,
+    limit,
+    remaining,
+    exhausted: remaining === 0,
+    resetAt: overview?.resetAt ?? null,
+    signInWithGoogle,
+  };
 }
 
 export default function Composer({
@@ -69,13 +87,33 @@ export default function Composer({
   onSubmit,
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const { tier, questionsAllowed, researchAllowed, counts } = useTierUnlocks();
+  const {
+    tier,
+    questionsAllowed,
+    researchAllowed,
+    counts,
+    limit,
+    remaining,
+    exhausted,
+    resetAt,
+    signInWithGoogle,
+  } = useTierUnlocks();
+
+  // One description list for the textarea: submit errors, the always-present
+  // hint, and (when spent) the quota notice.
+  const describedBy = [
+    error ? "snaw-error" : null,
+    "snaw-enter-hint",
+    exhausted ? "snaw-quota" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!busy) onSubmit();
+        if (!busy && !exhausted) onSubmit();
       }}
       className="bg-paper"
     >
@@ -83,15 +121,51 @@ export default function Composer({
           icon + text so meaning never rides on colour alone, matching the
           thread's error-card vocabulary, inside the stable live-region shell
           (rendered before its text exists) for a reliable announcement. */}
-      <div role="status" aria-live="polite">
+      <div role="alert">
         {error && (
-          <p className="ui-enter-fast mb-2.5 flex items-start gap-2.5 rounded-2xl border border-err/30 bg-err-bg px-4 py-3 text-sm text-err">
+          <p
+            id="snaw-error"
+            className="ui-enter-fast mb-2.5 flex items-start gap-2.5 rounded-2xl border border-err/30 bg-err-bg px-4 py-3 text-sm text-err"
+          >
             <TriangleAlert
               className="mt-0.5 size-4 shrink-0"
               aria-hidden="true"
             />
             <span className="min-w-0">{error}</span>
           </p>
+        )}
+      </div>
+
+      {/* Generation allowance, spelled out (guest: 3, free: 5 per 5-hour
+          window). The wrapper is always mounted so the polite region exists
+          before its text does; the notice itself only renders when spent. */}
+      <div role="status">
+        {exhausted && (
+          <div
+            id="snaw-quota"
+            className="ui-enter-fast mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-line bg-card px-4 py-3 text-sm text-ink"
+          >
+            <TriangleAlert className="size-4 shrink-0 text-err" aria-hidden="true" />
+            <span>
+              You’ve used all {limit}
+              {tier === "guest" ? " guest" : ""} generations for this 5-hour window.
+            </span>
+            {tier === "guest" ? (
+              <button
+                type="button"
+                onClick={() => void signInWithGoogle()}
+                className="font-bold text-accent underline-offset-2 transition-[color] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+              >
+                Sign in for 5 more
+              </button>
+            ) : (
+              resetAt && (
+                <span className="text-muted">
+                  More in {minutesUntil(resetAt)} min.
+                </span>
+              )
+            )}
+          </div>
         )}
       </div>
 
@@ -116,7 +190,7 @@ export default function Composer({
                   type="button"
                   onClick={() => onRemoveFile(i)}
                   aria-label={`Remove attached file ${f.name}`}
-                  className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+                  className="grid size-9 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-line/50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
                 >
                   <X className="size-4" aria-hidden="true" />
                 </button>
@@ -133,12 +207,20 @@ export default function Composer({
           value={text}
           onChange={(e) => onText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !busy) {
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing &&
+              !busy &&
+              !exhausted
+            ) {
               e.preventDefault();
               onSubmit();
             }
           }}
           rows={2}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           placeholder={
             files.length
               ? "Add pasted notes to combine with the files above — or just send"
@@ -232,7 +314,7 @@ export default function Composer({
                   id="snaw-questions"
                   value={(counts as number[]).includes(questionCount) ? questionCount : counts[0]}
                   onChange={(e) => onQuestionCount(Number(e.target.value))}
-                  className="max-w-16 cursor-pointer rounded-r-full bg-transparent pr-3 text-sm font-medium text-ink transition-[background-color] focus:outline-none"
+                  className="max-w-16 cursor-pointer rounded-r-full bg-transparent pr-3 text-sm font-medium text-ink transition-[background-color] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                 >
                   {counts.map((n) => (
                     <option key={n} value={n}>
@@ -304,9 +386,15 @@ export default function Composer({
               a round arrow-up key — same affordance, tighter silhouette. */}
           <button
             type="submit"
-            disabled={busy}
-            aria-label={busy ? "Generating study pack" : "Send"}
-            className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-white shadow-[0px_2px_4px_rgba(79,70,229,0.25)] transition-[background-color] hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+            disabled={busy || exhausted}
+            aria-label={
+              busy
+                ? "Generating study pack"
+                : exhausted
+                  ? "No generations left this window"
+                  : "Send"
+            }
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-white shadow-[0px_2px_4px_rgba(79,70,229,0.25)] transition-[background-color] hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
           >
             {busy ? (
               <LoaderCircle
@@ -321,8 +409,21 @@ export default function Composer({
         </div>
       </div>
 
-      <p className="mt-2 px-1 text-center text-xs text-muted">
-        Enter to send · Shift+Enter for a new line
+      <p
+        id="snaw-enter-hint"
+        className="mt-2 flex flex-wrap items-center justify-center gap-x-1.5 px-1 text-center text-xs text-muted"
+      >
+        <span>Enter to send · Shift+Enter for a new line</span>
+        {remaining !== null && tier !== "premium" && (
+          <span
+            className={cn(
+              "font-semibold tabular-nums",
+              exhausted ? "text-err" : "text-muted",
+            )}
+          >
+            · {remaining} of {limit} left
+          </span>
+        )}
       </p>
     </form>
   );

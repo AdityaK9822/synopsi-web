@@ -22,6 +22,7 @@ import {
   MissingApiKeyError,
   normaliseNotes,
   notesFromUpload,
+  PdfError,
   UnsupportedFileError,
 } from "../lib/pipeline";
 import {
@@ -352,13 +353,47 @@ describe("notesFromUpload", () => {
     );
   });
 
-  it("rejects an empty PDF with the scanned-images hint", async () => {
-    await expect(notesFromUpload("blank.pdf", makePdf(""))).rejects.toThrowError(
-      EmptyNotesError
+  it("rejects an empty PDF without invoking OCR", async () => {
+    const blank = makePdf("");
+    await expect(notesFromUpload("blank.pdf", blank)).rejects.toThrowError(
+      PdfError
     );
-    await expect(notesFromUpload("blank.pdf", makePdf(""))).rejects.toThrowError(
-      /scanned images/
+    await expect(notesFromUpload("blank.pdf", blank)).rejects.toThrowError(
+      /No readable text/
     );
+    expect(
+      await notesFromUpload("blank.pdf", blank).catch((e: PdfError) => e.reason),
+    ).toBe("no-text");
+  });
+
+  it("separates a corrupt PDF from a scan", async () => {
+    const garbage = new TextEncoder().encode("definitely not a pdf");
+    await expect(notesFromUpload("broken.pdf", garbage)).rejects.toThrowError(
+      PdfError
+    );
+    await expect(notesFromUpload("broken.pdf", garbage)).rejects.toThrowError(
+      /corrupted or not a PDF/
+    );
+    expect(
+      await notesFromUpload("broken.pdf", garbage).catch((e: PdfError) => e.reason),
+    ).toBe("corrupt");
+  });
+
+  it("recognises a PDF by its header when the extension is missing", async () => {
+    const pdf = makePdf(
+      "Round robin gives every process a fixed time quantum before preemption."
+    );
+    const result = await notesFromUpload("lecture-download", pdf);
+    expect(result.text).toContain("Round robin");
+  });
+
+  it("strips a UTF-8 BOM from text uploads", async () => {
+    const bytes = new TextEncoder().encode(
+      "\uFEFF" + "Operating systems notes with a byte-order mark at the front."
+    );
+    const result = await notesFromUpload("notes.txt", bytes);
+    expect(result.text.startsWith("\uFEFF")).toBe(false);
+    expect(result.text.startsWith("Operating")).toBe(true);
   });
 
   it("extracts text from a text PDF", async () => {

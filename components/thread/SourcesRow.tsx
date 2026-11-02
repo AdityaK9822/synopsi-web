@@ -64,16 +64,15 @@ export default function SourcesRow({
           <li className="min-w-0">
             <button
               type="button"
-              aria-expanded={showAll}
-              onClick={() => setShowAll((v) => !v)}
+              onClick={() => setShowAll(true)}
               className="ui-enter flex h-full w-full min-h-[72px] flex-col justify-between gap-2.5 rounded-2xl border border-dashed border-line-strong bg-background p-3 text-left transition [transition-property:border-color,color] hover:border-accent hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.98] motion-reduce:transition-none"
             >
               <p className="line-clamp-2 text-xs font-semibold leading-relaxed">
-                View {hidden}+ more source{hidden === 1 ? "" : "s"}
+                View {hidden} more source{hidden === 1 ? "" : "s"}
               </p>
               <p className="flex items-center gap-1.5 text-[11px] font-medium">
                 <FileText className="size-3.5 shrink-0" aria-hidden="true" />
-                {showAll ? "Show all sources" : "Show every source"}
+                Show every source
               </p>
             </button>
           </li>

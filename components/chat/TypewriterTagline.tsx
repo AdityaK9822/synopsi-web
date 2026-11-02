@@ -85,11 +85,11 @@ export default function TypewriterTagline() {
       <span className="sr-only">{SENTENCE}</span>
       <span aria-hidden="true">
         {FRAME}{" "}
-        <span className="text-primary">{shown}</span>
+        <span className="text-accent">{shown}</span>
         {!reduce && (
           <span
             className={
-              "tw-caret ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.12em] rounded-full bg-primary/70 " +
+              "tw-caret ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.12em] rounded-full bg-accent/70 " +
               (caretAnimating ? "" : "tw-caret-solid")
             }
           />

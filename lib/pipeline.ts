@@ -12,7 +12,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { extractText, getDocumentProxy } from "unpdf";
+import { looksLikePdf, pdfToMarkdown } from "./pdf-markdown";
 
 import {
   buildSystemPrompt,
@@ -41,6 +41,10 @@ export class EmptyNotesError extends PipelineError {}
 
 export class UnsupportedFileError extends PipelineError {}
 
+/* Re-exported so callers keep importing PDF failures from the pipeline. */
+export { PdfError } from "./pdf-markdown";
+export type { PdfFailure } from "./pdf-markdown";
+
 export class ApiError extends PipelineError {
   status?: number;
   constructor(message: string, status?: number) {
@@ -52,33 +56,29 @@ export class ApiError extends PipelineError {
 export class ModelResponseError extends PipelineError {}
 
 /* ------------------------------------------------------- note reading */
-async function readPdf(data: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(new Uint8Array(data));
-  const { text } = await extractText(pdf, { mergePages: true });
-  // unpdf types a merged result as string; tolerate an array at runtime too.
-  const merged =
-    typeof text === "string" ? text : (text as unknown as string[]).join("\n\n");
-  return merged.trim();
+/** Text uploads: UTF-8, minus the BOM some editors prepend (it would
+ *  otherwise become the model's first character). */
+function decodeText(data: Uint8Array): string {
+  return new TextDecoder("utf-8").decode(data).replace(/^\uFEFF/, "");
 }
 
-/** Extract the raw textual content of an upload, without validation/capping. */
+/**
+ * Extract the raw textual content of an upload, without validation/capping.
+ * PDFs are detected by extension OR by their %PDF- header, so a correctly
+ * built file with a missing/odd extension still works.
+ */
 export async function decodeUpload(name: string, data: Uint8Array): Promise<string> {
   const lower = name.toLowerCase();
-  if (lower.endsWith(".pdf")) {
-    try {
-      return await readPdf(data);
-    } catch {
-      return ""; // scanned/unreadable PDF falls through to the empty-notes error later
-    }
-  }
+  if (lower.endsWith(".pdf")) return (await pdfToMarkdown(data)).markdown;
   if (
     lower.endsWith(".txt") ||
     lower.endsWith(".md") ||
     lower.endsWith(".markdown") ||
     lower.endsWith(".text")
   ) {
-    return new TextDecoder("utf-8").decode(data);
+    return decodeText(data);
   }
+  if (looksLikePdf(data)) return (await pdfToMarkdown(data)).markdown;
   throw new UnsupportedFileError(
     `Unsupported file type: “${name}”. Use a .txt, .md or .pdf file.`
   );
@@ -89,19 +89,7 @@ export async function notesFromUpload(
   name: string,
   data: Uint8Array
 ): Promise<{ text: string; trimmed: boolean }> {
-  const lower = name.toLowerCase();
-  const text = await decodeUpload(name, data);
-  try {
-    return normaliseNotes(text);
-  } catch (exc) {
-    if (exc instanceof EmptyNotesError && lower.endsWith(".pdf")) {
-      throw new EmptyNotesError(
-        `${exc.message} No selectable text was found in the PDF — it may be ` +
-          "scanned images. Try a text-based PDF, or paste the text instead."
-      );
-    }
-    throw exc;
-  }
+  return normaliseNotes(await decodeUpload(name, data));
 }
 
 /** Validate, clean and length-cap raw note text. */

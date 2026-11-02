@@ -4,7 +4,7 @@ import { LogOut } from "lucide-react";
 
 import DialogShell from "@/components/shell/DialogShell";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { cn } from "@/lib/utils";
+import { cn, minutesUntil } from "@/lib/utils";
 import { TIER_LIMITS, type Tier } from "@/lib/plans";
 
 /**
@@ -44,7 +44,7 @@ export default function AccountDialog({
         signedIn
           ? "Your notes stay local; this only tracks your tier and monthly allowance."
           : guest
-            ? "You're browsing as a guest — everything resets when you refresh."
+            ? "You're browsing as a guest — chats clear on refresh, but your generation allowance is tracked."
             : "Sign in to keep your chats on every device and unlock your free monthly allowance."
       }
     >
@@ -90,7 +90,7 @@ export default function AccountDialog({
 
           {overview?.resetAt && !isNaN(new Date(overview.resetAt).getTime()) && (
             <p className="text-xs text-muted">
-              Resets in {Math.max(0, Math.round((new Date(overview.resetAt).getTime() - Date.now()) / 60000))} min
+              Resets in {minutesUntil(overview.resetAt)} min
               {" "}· at {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(new Date(overview.resetAt))}.
             </p>
           )}
@@ -115,14 +115,33 @@ export default function AccountDialog({
       ) : (
         <div className="flex flex-col gap-4">
           {guest && (
-            <div className="rounded-2xl border border-line bg-panel p-3.5 text-sm text-muted">
-              <p className="font-semibold text-ink">What a guest gets</p>
-              <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                <li>3 study packs every 5 hours</li>
-                <li>No saved history — a refresh clears everything</li>
-                <li>No fact-check (research) mode, no revision questions, no PDF export</li>
-              </ul>
-            </div>
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Meter
+                  label="Generations used"
+                  used={gensUsed}
+                  limit={gensLimit}
+                  pct={genPct}
+                  suffix="this 5h window"
+                />
+                {overview?.resetAt && !isNaN(new Date(overview.resetAt).getTime()) && (
+                  <p className="text-xs text-muted">
+                    {gensLimit - gensUsed > 0
+                      ? `${gensLimit - gensUsed} left`
+                      : "None left"}{" "}
+                    · resets in {minutesUntil(overview.resetAt)} min.
+                  </p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-line bg-panel p-3.5 text-sm text-muted">
+                <p className="font-semibold text-ink">What a guest gets</p>
+                <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                  <li>3 study packs every 5 hours</li>
+                  <li>No saved history — a refresh clears everything</li>
+                  <li>No fact-check (research) mode, no revision questions, no PDF export</li>
+                </ul>
+              </div>
+            </>
           )}
 
           <button
@@ -188,11 +207,11 @@ function Meter({
         aria-valuemin={0}
         aria-valuemax={limit}
         aria-valuenow={used}
-        aria-label={`${label} for this month`}
+        aria-label={`${label} this window`}
         className="h-2 overflow-hidden rounded-full bg-line/70"
       >
         <div
-          className={cn("h-full rounded-full transition-[width]", pct >= 100 ? "bg-amber-500" : "bg-accent")}
+          className={cn("h-full rounded-full transition-[width]", pct >= 100 ? "bg-err" : "bg-accent")}
           style={{ width: `${pct}%` }}
         />
       </div>

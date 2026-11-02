@@ -5,7 +5,7 @@ import type { StudyPack } from "@/lib/types";
 
 /* Round square icon button for the slim header's collapse control. */
 const HEADER_BTN =
-  "grid size-8 shrink-0 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
+  "grid size-11 shrink-0 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
 
 /**
  * The design's right rail: an at-a-glance inventory of the OPEN chat's
@@ -69,16 +69,16 @@ export default function OverviewRail({
       <div className="flex flex-col gap-3.5 px-3.5 pb-5 pt-4">
         {/* how this pack was run */}
         <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex h-6 items-center rounded-full border border-line bg-panel px-2.5 text-[11px] font-semibold text-muted">
+          <span className="inline-flex h-6 items-center rounded-full border border-line bg-panel px-2.5 text-xs font-semibold text-muted">
             Study pack
           </span>
           {quizMode && (
-            <span className="inline-flex h-6 items-center rounded-full border border-line bg-primary/10 px-2.5 text-[11px] font-semibold text-ink">
+            <span className="inline-flex h-6 items-center rounded-full border border-line bg-primary/10 px-2.5 text-xs font-semibold text-ink">
               Quiz mode
             </span>
           )}
           {researchUsed && (
-            <span className="inline-flex h-6 items-center rounded-full border border-line bg-primary/10 px-2.5 text-[11px] font-semibold text-ink">
+            <span className="inline-flex h-6 items-center rounded-full border border-line bg-primary/10 px-2.5 text-xs font-semibold text-ink">
               Research
             </span>
           )}

@@ -60,7 +60,7 @@ type CopyState = "idle" | "done" | "failed";
 const SECTION_H = "flex items-center gap-2 text-base font-semibold tracking-tight";
 
 const ACTION_CHIP =
-  "inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition [transition-property:background-color,border-color,color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
+  "inline-flex h-11 items-center gap-1.5 rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition [transition-property:background-color,border-color,color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none sm:h-9";
 
 /** A compact info banner (input trimmed / structure fallback). */
 function Note({ children }: { children: React.ReactNode }) {
@@ -220,6 +220,15 @@ export default function ResultCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // Blob URLs are documents: revoke the one being replaced (or unmounted)
+  // so repeated result cards do not leak memory.
+  useEffect(() => {
+    const url = pdf.url;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [pdf.url]);
+
   async function downloadPdf() {
     const url = await ensurePdf();
     if (url) {
@@ -350,9 +359,9 @@ export default function ResultCard({
             title={pdfLocked ? "PDF export unlocks when you sign in (5 free downloads a month)" : undefined}
             onClick={() => setView(v.id)}
             className={cn(
-              "flex h-9 items-center rounded-lg px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none",
+              "flex h-11 items-center rounded-lg px-3.5 text-sm font-medium transition-[background-color,color,box-shadow] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none sm:h-9",
               view === v.id
-                ? "bg-card text-ink shadow-sm"
+                ? "bg-primary/15 text-ink"
                 : "text-muted hover:text-ink",
               pdfLocked && "cursor-not-allowed opacity-60 hover:text-muted",
             )}
@@ -481,7 +490,7 @@ export default function ResultCard({
             )}
 
             {(pack.factChecks.length > 0 || pack.sources.length > 0) && (
-              <section id="fact-check" aria-label="Fact-check and sources" className="scroll-mt-24">
+              <section aria-label="Fact-check and sources">
                 <h2 className={SECTION_H}>
                   <SearchCheck className="size-5 text-accent" aria-hidden="true" />
                   {pack.sources.length > 0 ? "Fact-check & sources" : "Fact-check"}
@@ -539,7 +548,7 @@ export default function ResultCard({
                               href={s.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="font-medium text-accent underline underline-offset-2 transition-colors hover:text-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                              className="font-medium text-accent underline underline-offset-2 transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                             >
                               {s.name}
                             </a>
@@ -583,7 +592,7 @@ export default function ResultCard({
               type="button"
               onClick={() => void copyMdSource()}
               aria-label="Copy the markdown source"
-              className="ml-0 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line bg-card px-2.5 font-sans text-xs font-medium text-ink transition-[background-color,border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+              className="ml-0 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-line bg-card px-2.5 font-sans text-xs font-medium text-ink transition-[background-color,border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
             >
               {mdCopyState === "done" ? (
                 <Check className="size-3.5" aria-hidden="true" />
@@ -617,7 +626,7 @@ export default function ResultCard({
                   setPdf({ url: null, error: null, busy: false });
                   void ensurePdf();
                 }}
-                className="inline-flex h-9 shrink-0 items-center rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition-[border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none"
+                className="inline-flex h-11 shrink-0 items-center rounded-full border border-line bg-card px-3 text-sm font-medium text-ink transition-[border-color] hover:border-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none sm:h-9"
               >
                 Try again
               </button>

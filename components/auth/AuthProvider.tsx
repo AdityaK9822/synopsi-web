@@ -6,7 +6,7 @@
  *
  * Guest tier: every visitor without a Google session is silently upgraded
  * to an ANONYMOUS Firebase identity. That gives guests a server-side uid,
- * so their (strict) 5-generation quota survives refreshes — clearing
+ * so their strict 3-generation quota survives refreshes — clearing
  * browser data is the only reset, which is the accepted trade-off.
  *
  * State derives from Firebase's own identity signal (onAuthStateChanged,

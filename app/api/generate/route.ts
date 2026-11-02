@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 
+/* PDF parsing (OCR included) runs native/WASM dependencies, so this route
+   must stay on the Node runtime. A scanned document can take longer than the
+   default budget: OCR is ~0.2 s/page once the engine is warm, plus ~8 s of
+   worker start-up on a cold instance. (`runtime` is implicit under
+   cacheComponents, which rejects the export.) */
+export const maxDuration = 300;
+
 import {
   ApiError,
   DEFAULT_MODEL,
@@ -10,6 +17,7 @@ import {
   ModelResponseError,
   decodeUpload,
   normaliseNotes,
+  PdfError,
   PipelineError,
   saveStudyPack,
   UnsupportedFileError,
@@ -34,6 +42,13 @@ const truthy = (value: FormDataEntryValue | null): boolean => {
 
 const MAX_UPLOAD_FILES = 10;
 
+/* Upload ceiling. Vercel's serverless functions reject request bodies over
+   4.5 MB before this handler runs, so we refuse just under that there and
+   give the user an actionable message instead of a platform 413. Locally
+   (and on self-hosted Node) a higher cap keeps big lecture PDFs usable. */
+const MB = 1024 * 1024;
+const MAX_BODY_BYTES = process.env.VERCEL ? 4.5 * MB : 25 * MB;
+
 /**
  * POST /api/generate
  * Body: JSON { text, questionCount, questions?, quiz?, research? }
@@ -45,15 +60,34 @@ const MAX_UPLOAD_FILES = 10;
  */
 export async function POST(req: NextRequest) {
   try {
+    // Fail fast on oversized bodies before the multipart parser buffers them.
+    const declared = Number(req.headers.get("content-length") ?? "");
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        {
+          error:
+            `That upload is too large — the limit is ${Math.round(MAX_BODY_BYTES / MB)} MB ` +
+            "per request. Split the PDF into smaller parts, or paste the text instead.",
+          code: "file_too_large",
+          status: 413,
+        },
+        { status: 413 },
+      );
+    }
+
     const contentType = req.headers.get("content-type") ?? "";
     let questionCount = 10;
     let quizMode = false;
     let research = false;
     let questionsEnabled = false;
-    let notesText: string;
+    let notesText = "";
     let trimmed = false;
     let sourceName = "pasted-notes";
     let sources: string[] = [];
+    /* Uploads are decoded AFTER the access gate: PDF parsing may run OCR,
+       and an unauthenticated request must not be able to spend that CPU. */
+    let pendingFiles: File[] = [];
+    let pendingText = "";
 
     if (contentType.includes("application/json")) {
       const body = await req.json().catch(() => null);
@@ -75,23 +109,13 @@ export async function POST(req: NextRequest) {
         .filter((f): f is File => f instanceof File)
         .slice(0, MAX_UPLOAD_FILES);
 
-      const parts: string[] = [];
-      for (const file of uploadFiles) {
-        const data = new Uint8Array(await file.arrayBuffer());
-        const decoded = await decodeUpload(file.name, data);
-        parts.push(decoded.trim());
-      }
-      const pasted = String(form.get("text") ?? "").trim();
-      sources = [...uploadFiles.map((f) => f.name)];
-      if (pasted) {
-        parts.push(pasted);
-        sources.push("pasted text");
-      }
+      pendingFiles = uploadFiles;
+      pendingText = String(form.get("text") ?? "").trim();
+      sources = uploadFiles.map((f) => f.name);
+      if (pendingText) sources.push("pasted text");
 
       if (uploadFiles.length === 1) sourceName = uploadFiles[0].name;
       else if (uploadFiles.length > 1) sourceName = `${uploadFiles.length} attached files`;
-
-      ({ text: notesText, trimmed } = normaliseNotes(parts.join("\n\n")));
     }
 
     const apiKey = process.env.OLLAMA_API_KEY ?? "";
@@ -128,6 +152,32 @@ export async function POST(req: NextRequest) {
       const gated = gateErrorResponse(exc, { status: 403, error: "Access denied." });
       if (gated) return NextResponse.json(gated, { status: gated.status });
       throw exc;
+    }
+
+    /* Decode uploads now that the caller is known: PDF text extraction and
+       OCR are the expensive part of the request. */
+    if (pendingFiles.length > 0 || pendingText) {
+      const parts: string[] = [];
+      for (const file of pendingFiles) {
+        const data = new Uint8Array(await file.arrayBuffer());
+        try {
+          parts.push((await decodeUpload(file.name, data)).trim());
+        } catch (exc) {
+          // Name the file that failed: with several attachments the generic
+          // message leaves the user guessing which one to fix.
+          if (exc instanceof PdfError) {
+            throw new PdfError(exc.reason, `“${file.name}”: ${exc.message}`);
+          }
+          if (exc instanceof UnsupportedFileError) {
+            throw new UnsupportedFileError(
+              `“${file.name}” is not a supported file type. Use a .txt, .md or .pdf file.`,
+            );
+          }
+          throw exc;
+        }
+      }
+      if (pendingText) parts.push(pendingText);
+      ({ text: notesText, trimmed } = normaliseNotes(parts.join("\n\n")));
     }
 
     const result = await generateStudyPack(notesText, questionCount, apiKey, {
@@ -172,18 +222,20 @@ export async function POST(req: NextRequest) {
       trimmed,
     });
   } catch (exc) {
-    const status =
-      exc instanceof MissingApiKeyError || exc instanceof EmptyNotesError
-        ? 400
-        : exc instanceof UnsupportedFileError
-          ? 415
-          : exc instanceof ApiError
-            ? (exc.status ?? 502)
-            : exc instanceof ModelResponseError
-              ? 502
-              : 500;
+    let status = 500;
+    if (exc instanceof MissingApiKeyError || exc instanceof EmptyNotesError) {
+      status = 400;
+    } else if (exc instanceof PdfError) {
+      status = 422;
+    } else if (exc instanceof UnsupportedFileError) {
+      status = 415;
+    } else if (exc instanceof ApiError) {
+      status = exc.status ?? 502;
+    } else if (exc instanceof ModelResponseError) {
+      status = 502;
+    }
     const message =
-      exc instanceof PipelineError
+      exc instanceof PipelineError || exc instanceof PdfError
         ? exc.message
         : "Unexpected error — nothing was lost; please try again. If it repeats, " +
           "check your internet connection or the API key in .env.local.";

@@ -61,12 +61,14 @@ export default function QuestionCard({
                     aria-pressed={isPicked}
                     onClick={() => onAnswer?.(oi, isCorrect)}
                     className={cn(
-                      "flex w-full items-start gap-2.5 rounded-xl border px-3 py-2 text-left text-sm transition [transition-property:background-color,border-color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.995] motion-reduce:transition-none",
+                      "flex w-full min-h-11 items-start gap-2.5 rounded-xl border px-3 py-2 text-left text-sm transition [transition-property:background-color,border-color] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.995] motion-reduce:transition-none",
                       !revealed &&
                         "border-line bg-card hover:border-line-strong enabled:hover:bg-line/30",
                       revealed && isCorrect && "border-ok/40 bg-ok-bg",
                       revealed && isPicked && !isCorrect && "border-err/40 bg-err-bg",
-                      revealed && !isCorrect && !isPicked && "border-line bg-card opacity-60",
+                      // Unpicked wrong options stay readable — the user is
+                      // meant to compare them, so no opacity drop.
+                      revealed && !isCorrect && !isPicked && "border-line bg-card text-muted",
                     )}
                   >
                     <span
@@ -74,9 +76,9 @@ export default function QuestionCard({
                       className={cn(
                         "mt-px grid size-5 shrink-0 place-items-center rounded-full border text-[11px] font-semibold tabular-nums",
                         revealed && isCorrect
-                          ? "border-ok bg-ok text-white"
+                          ? "border-ok bg-ok text-paper"
                           : revealed && isPicked
-                            ? "border-err bg-err text-white"
+                            ? "border-err bg-err text-paper"
                             : "border-line-strong text-muted",
                       )}
                     >

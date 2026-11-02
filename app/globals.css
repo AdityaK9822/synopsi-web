@@ -11,12 +11,14 @@
    white, dark #a5b4fc = 7.5:1 on the dark card). `--faint` is
    decorative only (hairline rails, carets) — never body text. */
 :root {
+  color-scheme: light;     /* native selects, scrollbars, dialogs follow the theme */
   --background: #f8fafc;   /* app canvas (slate-50) */
   --paper: #ffffff;        /* the "written on a page" content sheet */
   --card: #ffffff;
   --panel: #f8fafc;        /* rails / sidebars */
-  --line: #e2e8f0;         /* slate-200 hairlines */
-  --line-strong: #cbd5e1;  /* slate-300 form-field boundaries */
+  --line: #e2e8f0;         /* slate-200 hairlines — decorative separators only */
+  --line-strong: #7d8fa8;  /* form-field boundaries: 3.15:1 on paper, 3.30:1 on
+                              panel, so a control's edge is perceivable (1.4.11) */
   --ink: #1e293b;          /* slate-800 */
   --muted: #475569;        /* 6.7:1 on paper, 6.4:1 on canvas — AA */
   --faint: #94a3b8;        /* decorative rails/carets/icons only — any READABLE
@@ -31,12 +33,13 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0b1220;
   --paper: #111a2b;
   --card: #111a2b;
   --panel: #0d1526;
   --line: #22304a;
-  --line-strong: #324467;
+  --line-strong: #52688f;  /* 3.10:1 on card, 3.24:1 on panel */
   --ink: #e2e8f0;
   --muted: #9db0c8;        /* 6.9:1 on card */
   --faint: #64748b;
@@ -212,16 +215,32 @@ body {
   }
 }
 
-/* Chat-history drawer (<lg): slides from its trigger edge on open.
-   Exit is instant — the drawer is a high-frequency navigation surface. */
+/* Chat-history drawer (<lg): a native <dialog> pinned to the left edge, so
+   showModal() supplies the focus trap, Escape handling and the inert
+   background for free. Enter slides from its trigger edge; exit is instant
+   (high-frequency navigation surface). The backdrop paints the same scrim
+   the hand-rolled overlay used to. */
+.drawer-dlg::backdrop {
+  background: rgb(15 23 42 / 0.45);
+}
 @media (prefers-reduced-motion: no-preference) {
-  .dw-panel {
+  .drawer-dlg {
     transition:
       translate var(--motion-fast) var(--ease-out),
       opacity var(--motion-fast) var(--ease-out);
 
     @starting-style {
       translate: -16px 0;
+      opacity: 0;
+    }
+  }
+  .drawer-dlg::backdrop {
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      display var(--motion-fast) allow-discrete,
+      overlay var(--motion-fast) allow-discrete;
+
+    @starting-style {
       opacity: 0;
     }
   }

@@ -19,7 +19,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 const TOP_BTN_BASE =
   "shrink-0 place-items-center rounded-full text-muted transition [transition-property:color,background-color] hover:text-ink hover:bg-line/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.96] motion-reduce:transition-none";
 
-const TOP_BTN = `grid size-10 ${TOP_BTN_BASE}`;
+const TOP_BTN = `grid size-11 ${TOP_BTN_BASE}`;
 
 /**
  * Thread top bar: it spans the full width to the RIGHT of the history
@@ -71,6 +71,7 @@ export default function TopBar({
       <button
         type="button"
         onClick={onOpenAccount}
+        aria-haspopup="dialog"
         className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition-[background-color] hover:bg-line/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent enabled:motion-safe:active:scale-[0.98] motion-reduce:transition-none"
       >
         <span
@@ -109,6 +110,7 @@ export default function TopBar({
         <button
           type="button"
           onClick={onOpenHelp}
+          aria-haspopup="dialog"
           aria-label="How it works"
           className={`${TOP_BTN} md:hidden`}
         >
@@ -118,6 +120,7 @@ export default function TopBar({
         <button
           type="button"
           onClick={onOpenSettings}
+          aria-haspopup="dialog"
           aria-label="Settings"
           className={`${TOP_BTN} md:hidden`}
         >
@@ -126,7 +129,6 @@ export default function TopBar({
         <button
           type="button"
           onClick={onToggleDark}
-          aria-pressed={dark}
           aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
           className={TOP_BTN}
         >
