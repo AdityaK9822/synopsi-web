@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 
 /* Plus Jakarta Sans: the reference design's display/UI face — headings,
    labels and body all speak it. Geist Mono stays for code/hash/type chips. */

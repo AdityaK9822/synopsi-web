@@ -18,6 +18,7 @@ import {
 import { useAuth } from "@/components/auth/AuthProvider";
 import QuestionCard, { type AnswerState } from "@/components/QuestionCard";
 import SourcesRow from "@/components/thread/SourcesRow";
+import { MathText } from "@/components/math/MathText";
 import {
   buildPackPlainText,
   buildQuizMarkdown,
@@ -401,7 +402,7 @@ export default function ResultCard({
                 </h2>
                 <ul className="mt-3 max-w-prose list-disc space-y-1.5 pl-5 text-base leading-relaxed">
                   {pack.summary.map((point, i) => (
-                    <li key={i}>{point}</li>
+                    <li key={i}><MathText text={point} /></li>
                   ))}
                 </ul>
               </section>
@@ -422,10 +423,10 @@ export default function ResultCard({
                       className="grid grid-cols-[7rem_1fr] items-baseline gap-x-4 border-b border-line py-3 sm:grid-cols-[10rem_1fr] first:pt-0 last:border-b-0 last:pb-0"
                     >
                       <dt className="text-base font-semibold">
-                        {c.term}
+                        <MathText text={c.term} />
                       </dt>
                       <dd className="min-w-0 text-base leading-relaxed">
-                        <span className="block">{c.definition}</span>
+                        <span className="block"><MathText text={c.definition} /></span>
                         {c.why && (
                           <span className="mt-0.5 block text-sm leading-relaxed text-muted">
                             Why it matters: {c.why}
